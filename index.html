@@ -2065,7 +2065,7 @@
       padding: 12px 16px; 
       padding-bottom: max(24px,env(safe-area-inset-bottom)); 
       /* Liikkuu sheetin mukana kun sheettiä vedetään kollapsitason alle. */
-      transform: translateY(140%);
+      transform: translateY(calc(100% + 48px));
       transition: opacity 0.3s ease, transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94);
       will-change: transform;
       pointer-events: auto;
@@ -5117,7 +5117,6 @@
   </div>
 
   <div id="bottom-sheet">
-    <div id="area-code-badge" style="display:none;position:absolute;top:16px;left:16px;z-index:5;background:#0C0243;color:white;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;padding:2px 8px;border-radius:5px;letter-spacing:0.3px;pointer-events:none;"></div>
     <!-- Credit line. Shares its spot with the Ajanhetki pill: whenever the pill
          is visible this is hidden, and it returns the moment the pill goes away
          (dismissed, filter open, or zoom < 13). The swap lives in
@@ -5180,6 +5179,12 @@
     </div>
     <div id="sheet-normal">
       <div id="sheet-summary">
+        <!-- Aluekoodi / kiekko- / latauspiste-merkki. Oli aiemmin absoluuttisesti
+             sheetin vasemmassa yläkulmassa (top:16px), jolloin se meni osittain
+             otsikon päälle. Nyt se on normaalissa tekstivirrassa otsikon
+             yläpuolella: näkyessään se työntää otsikkoa alas, piilossa ei vie
+             tilaa lainkaan. -->
+        <div id="area-code-badge" style="display:none;background:#0C0243;color:white;font-family:Arial,sans-serif;font-size:12px;font-weight:bold;padding:2px 8px;border-radius:5px;letter-spacing:0.3px;pointer-events:none;margin-bottom:6px;"></div>
         <div id="summary-header"></div>
         <div id="summary-type"></div>
         <div id="summary-operator"></div>
@@ -5574,7 +5579,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-07-31-b';
+    const APP_BUILD   = '2026-07-31-c';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -15394,7 +15399,13 @@
       const zoomOk = map.getZoom() >= 13;
       // Latauspisteen TAI pysäköintihallin päällä pilleri piilotetaan: molemmille
       // näytetään aina vain nykyhetki, joten ajanhetken säätö ei ole tarpeen.
-      const active = zoomOk && !ajanhetkiDismissed && showFreeParking && !filterMode && !hoveredChargingId && !(typeof hoveredHalliId !== 'undefined' && hoveredHalliId);
+      // Pilleri on ankkuroitu sheetin yläreunaan (#ajanhetki-anchor,
+      // bottom: calc(100% + 8px)). Perusnäkymässä sheet on ruudun alapuolella,
+      // jolloin pilleri jäisi kellumaan ruudun alalaitaan — siksi se näkyy vain
+      // kun sheet on auki. (window.__tpSheetOpen, ei suora sheetOpen: tämä
+      // funktio on lähdekoodissa ennen sen let-esittelyä.)
+      const sheetUp = !!window.__tpSheetOpen;
+      const active = sheetUp && zoomOk && !ajanhetkiDismissed && showFreeParking && !filterMode && !hoveredChargingId && !(typeof hoveredHalliId !== 'undefined' && hoveredHalliId);
       card.classList.toggle('visible', active);
       // The © OpenStreetMap credit shares the pill's spot: it stays visible on
       // every zoom level EXCEPT while the pill occupies the space.
@@ -17607,15 +17618,21 @@
       mid:        153,    // px näkyvissä välitason yläreunassa
       fadeBand:   50,     // välitason korkeus px
       dismissPx:  45,     // kuinka paljon kollapsitason alle → sulkeutuu
-      dismissVel: 0.8     // nopea alasveto → sulkeutuu heti
+      dismissVel: 0.8,    // nopea alasveto → sulkeutuu heti
+      hideOvershoot: 48   // ylimääräinen matka piiloon (varjon takia)
     };
+    // Toimintonapin piilotusasento — riittävän kaukana ruudun alapuolella.
+    const TP_BTN_HIDDEN = 'translateY(calc(100% + 48px))';
     let sheetOpen      = false;   // onko sheet esillä
     let sheetFadeArmed = true;    // tapahtuuko hiipumista
 
     function sheetLevelTop()       { return sheet.clientHeight - window.innerHeight * 0.8; }
     function sheetLevelMid()       { return sheet.clientHeight - TP_SHEET.mid; }
     function sheetLevelCollapsed() { return sheet.clientHeight - TP_SHEET.collapsed; }
-    function sheetLevelHidden()    { return sheet.clientHeight; }
+    // +TP_SHEET.hideOvershoot: sheetin oma box-shadow (0 -2px 24px) ulottuu
+    // ~26 px sen yläreunan yläpuolelle, joten pelkkä clientHeight jättäisi
+    // himmeän kaistan ruudun alalaitaan.
+    function sheetLevelHidden()    { return sheet.clientHeight + TP_SHEET.hideOvershoot; }
 
     // Ajetaan jokaisesta sheetin sijainnin muutoksesta: siirtää toiminto-
     // napin sheetin mukana ja laskee sisällön hiipumisen.
@@ -17624,7 +17641,7 @@
       const below = Math.max(0, ty - sheetLevelCollapsed());
       btnContainer.style.transform = sheetOpen
         ? (below ? 'translateY(' + below + 'px)' : 'translateY(0)')
-        : 'translateY(140%)';
+        : TP_BTN_HIDDEN;
 
       // Täyteen kokoon nostettu → hiipuminen pois päältä.
       if (sheetOpen && ty <= sheetLevelTop() + 2) sheetFadeArmed = false;
@@ -17646,22 +17663,25 @@
       if (filterMode) return;
       const wasOpen = sheetOpen;
       sheetOpen = true;
+      window.__tpSheetOpen = true;
       if (!wasOpen) sheetFadeArmed = true;
       btnContainer.classList.remove('hidden');
       btnContainer.style.opacity = '';
       if (typeof updateNavBtnVisibility === 'function') updateNavBtnVisibility();
+      if (typeof updateAjanhetkiPillVisibility === 'function') updateAjanhetkiPillVisibility();
       snapTo(wasOpen ? currentY : sheetLevelCollapsed());
     }
 
     // Sulkee sheetin ja toimintonapin kokonaan ruudun alapuolelle.
     function closeAreaSheet(){
       sheetOpen = false;
+      window.__tpSheetOpen = false;
       sheetFadeArmed = true;
       btnContainer.style.transition = 'opacity 0.3s ease, transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94)';
       sheet.style.transition = 'transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94)';
       sheet.style.transform  = 'translateY(' + sheetLevelHidden() + 'px)';
       currentY = sheetLevelHidden();
-      btnContainer.style.transform = 'translateY(140%)';
+      btnContainer.style.transform = TP_BTN_HIDDEN;
       if (typeof sheetBackdrop !== 'undefined' && sheetBackdrop) sheetBackdrop.style.opacity = 0;
       if (typeof updateOsmOpacity === 'function') updateOsmOpacity(currentY);
       // Valinta puretaan: korostukset pois ja tila nollaan, jotta saman
@@ -17685,12 +17705,31 @@
         sheet.style.transition = 'none';
         sheet.style.transform  = 'translateY(' + sheetLevelHidden() + 'px)';
         currentY = sheetLevelHidden();
-        btnContainer.style.transform = 'translateY(140%)';
+        btnContainer.style.transform = TP_BTN_HIDDEN;
       };
       put();
       window.addEventListener('resize', put);
       window.addEventListener('orientationchange', () => setTimeout(put, 250));
     })();
+
+    // ── Tyhjän kartan klikkaus sulkee sheetin ──────────────────────────
+    // Kohdekohtaiset klikkauskäsittelijät (master-poly-fill, halli-icons,
+    // charging-icons) ajetaan samasta tapahtumasta, joten tässä vain
+    // tarkistetaan osuiko klikkaus mihinkään niistä. Osumasäde 8 px, jotta
+    // pienten ikonien vieressä ei vahingossa sulkeudu.
+    map.on('click', (e) => {
+      if (filterMode || !sheetOpen) return;
+      const layers = ['master-poly-fill','halli-icons','charging-icons'].filter(id => map.getLayer(id));
+      if (layers.length) {
+        const r = 8;
+        const hits = map.queryRenderedFeatures(
+          [[e.point.x - r, e.point.y - r],[e.point.x + r, e.point.y + r]],
+          { layers }
+        );
+        if (hits.length) return;   // osui kohteeseen → valinta vaihtuu, ei suljeta
+      }
+      closeAreaSheet();
+    });
 
     let startY=0,startTranslate=0,lastY=0,lastTime=0,velocity=0,isDragging=false;
     function snapTo(t){
