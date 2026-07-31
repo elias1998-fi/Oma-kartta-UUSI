@@ -4182,6 +4182,14 @@
           <div class="settings-item-text"><div class="settings-item-label">Sovelluksen versio</div></div>
           <div class="about-version" id="about-version">2.0.0</div>
         </div>
+        <div class="settings-item" style="cursor:default;">
+          <div class="settings-item-text"><div class="settings-item-label">Kartan tyyli</div></div>
+          <div class="about-version" id="about-style" style="max-width:60%;text-align:right;">–</div>
+        </div>
+        <div class="settings-item" style="cursor:default;">
+          <div class="settings-item-text"><div class="settings-item-label">Viimeisin karttavirhe</div></div>
+          <div class="about-version" id="about-maperror" style="max-width:60%;text-align:right;word-break:break-word;">–</div>
+        </div>
         <div class="settings-item" onclick="confirmOpenExternal('https://totalparking.fi')">
           <div class="settings-item-text"><div class="settings-item-label">Yrityksen kotisivut</div></div>
           <div class="settings-item-chevron">›</div>
@@ -5600,7 +5608,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-07-31-i';
+    const APP_BUILD   = '2026-07-31-j';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5670,7 +5678,9 @@
     // uutena. HUOM: Mapboxin oma CDN-viive julkaisun jalkeen (dokumentoitu
     // vahintaan ~15 min) jaa silti voimaan — sita ei voi ohittaa.
     let _styleCacheBust = Date.now().toString(36);
+    let _styleBustEnabled = true;   // vahdin 2. vaihe sammuttaa taman
     function bustStyleUrl(url) {
+      if (!_styleBustEnabled) return url;
       if (!/api\.mapbox\.com\/styles\/v1\//.test(url)) return url;
       return url + (url.indexOf('?') === -1 ? '?' : '&') + 'fresh=' + _styleCacheBust;
     }
@@ -6020,6 +6030,62 @@
       keyboard: false, attributionControl: false, doubleClickZoom: false
     });
     map.touchZoomRotate.disableRotation();
+
+    // ══ KARTTATYYLIN LATAUSVAHTI ═══════════════════════════════════════
+    // Jos oma Studio-tyyli ei lataudu (vaara id, julkaisematon tyyli, tokenin
+    // URL-rajaus, verkkovirhe), kartta jaisi kokonaan tyhjaksi. Kokeillaan
+    // jarjestyksessa:
+    //   1) oma tyyli + tuoreusparametri
+    //   2) oma tyyli ILMAN tuoreusparametria  (paljastaa jos parametri haittaa)
+    //   3) mapbox/streets-v12                 (varmasti toimiva varatyyli)
+    // Lopputulos nakyy Asetukset -> Tietoja sovelluksesta -> Kartan tyyli.
+    const STYLE_FALLBACK = 'mapbox://styles/mapbox/streets-v12';
+    window.TP_STYLE_DIAG = 'ladataan…';
+    window.TP_LAST_MAP_ERROR = '';
+    let _styleStage = 0, _styleWatchTimer = null;
+
+    function applyStyleUrl(url, note){
+      window.TP_STYLE_DIAG = note;
+      let done = false;
+      const reapply = () => {
+        if (done) return;
+        if (!map.isStyleLoaded()) { setTimeout(reapply, 60); return; }
+        done = true;
+        try { reapplyMapLayers(); } catch(e){}
+      };
+      map.once('style.load', reapply);
+      map.setStyle(url, { diff: false });
+      setTimeout(reapply, 400);
+    }
+
+    function startStyleWatchdog(){
+      clearTimeout(_styleWatchTimer);
+      _styleWatchTimer = setTimeout(() => {
+        if (map.isStyleLoaded()) return;
+        _styleStage++;
+        if (_styleStage === 1) {
+          _styleBustEnabled = false;
+          applyStyleUrl(MAP_STYLE_URLS[mapStyleChoice], 'oma tyyli ei latautunut — yritetaan ilman tuoreusparametria');
+          startStyleWatchdog();
+        } else if (_styleStage === 2) {
+          applyStyleUrl(STYLE_FALLBACK, 'oma tyyli ei latautunut — kaytossa varatyyli streets-v12');
+          startStyleWatchdog();
+          if (typeof showCustomToast === 'function') {
+            showCustomToast('Oma karttatyyli ei latautunut — käytössä varatyyli', 4000);
+          }
+        }
+      }, 7000);
+    }
+
+    map.on('style.load', () => {
+      clearTimeout(_styleWatchTimer);
+      let lc = 0;
+      try { lc = (map.getStyle().layers || []).length; } catch(e){}
+      const src = (_styleStage === 0) ? 'oma tyyli' : (_styleStage === 1 ? 'oma tyyli (ilman tuoreusparametria)' : 'varatyyli streets-v12');
+      // Tasomaara paljastaa myos sen, jos tyyli latautui mutta on TYHJA.
+      window.TP_STYLE_DIAG = src + ' · ' + lc + ' tasoa' + (lc < 3 ? ' — TYHJÄ TYYLI?' : '');
+    });
+    startStyleWatchdog();
 
     // Kartan sisäinen koko on pidettävä säiliön TODELLISEN koon mukaisena.
     // Pelkkä window-'resize' ei riitä: säiliö voi saada lopullisen kokonsa vasta
@@ -12708,6 +12774,10 @@
     }
     
     function openAboutSettings() {
+      const _sd = document.getElementById('about-style');
+      if (_sd) _sd.textContent = window.TP_STYLE_DIAG || '–';
+      const _me = document.getElementById('about-maperror');
+      if (_me) _me.textContent = window.TP_LAST_MAP_ERROR || '–';
       document.getElementById('about-detail').classList.add('open');
     }
     function closeAboutSettings() {
@@ -17646,7 +17716,13 @@
     });
 
 
-    map.on('error',e=>{console.warn('Mapbox-virhe:',e.error?.message||e);});
+    map.on('error',e=>{
+      const m = (e && e.error && e.error.message) ? e.error.message : String((e && e.error) || e);
+      console.warn('Mapbox-virhe:', m);
+      // Talteen, jotta virhe nakyy puhelimessa Tietoja-nakymassa (konsolia ei
+      // kotivalikkoon asennetusta web-appista pysty avaamaan).
+      window.TP_LAST_MAP_ERROR = String(m).slice(0, 240);
+    });
 
 
     // ══════════════════════════════════════════════════════════════════
