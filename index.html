@@ -5588,7 +5588,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-07-31-e';
+    const APP_BUILD   = '2026-07-31-f';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -17647,34 +17647,63 @@
     // yläpuolelle ja erotinviiva + Päivät/Tunnit/Hinta-taulukko juuri sen
     // taakse piiloon. Mitta luetaan joka kerta uudestaan, koska sisältö
     // vaihtelee (aluekoodi-badge, latauspiste, halli).
-    function sheetBaseVisible(){
-      // 1) Etaisyys ruudun alareunasta TOIMINTONAPIN TODELLISEEN ylareunaan.
-      //    #btn-container on valkoinen maski, jonka oma padding-top (12 px) EI
-      //    kuulu nappiin — pelkka offsetHeight jatti siksi 12 px liikaa ilmaa.
-      const btnH   = btnContainer.offsetHeight || 94;
-      let   padTop = 12;
-      try { padTop = parseFloat(getComputedStyle(btnContainer).paddingTop) || 12; } catch(e){}
-      const btnTop = Math.max(0, btnH - padTop);
+    // Perustason jaannoskorjaus. sheetAlignBase() mittaa animaation jalkeen
+    // todelliset ruutukoordinaatit ja tallentaa eron tanne, jolloin seuraava
+    // napsautus perustasolle osuu heti oikeaan.
+    let _baseFix = 0;
 
-      // 2) Tiivistelman VIIMEISEN kirjoitetun rivin alareuna sheetin ylareunasta.
-      //    Ei #sheet-summaryn alareunaa: sen padding-bottom (8 px) olisi taas
-      //    ylimaaraista ilmaa. Tyhjat rivit ohitetaan (halli/latauspiste
-      //    tayttavat eri kentat kuin pysakointialue).
-      let last = 0;
-      try {
-        const topRef = sheet.getBoundingClientRect().top;
-        ['summary-header','summary-type','summary-operator'].forEach(id => {
-          const el = document.getElementById(id);
-          if (!el || !el.textContent || !el.textContent.trim()) return;
-          const b = el.getBoundingClientRect().bottom - topRef;
-          if (isFinite(b) && b > last) last = b;
-        });
-      } catch(e){}
-      if (!isFinite(last) || last < 40) last = 96;   // varasuunnitelma
-
-      // 3) Perustaso = viimeinen rivi + TP_SHEET.gapAboveBtn napin ylapuolelle.
-      return Math.max(TP_SHEET.minBase, Math.round(last + btnTop + TP_SHEET.gapAboveBtn));
+    // Tiivistelman VIIMEINEN kirjoitettu rivi. Tyhjat ohitetaan, koska
+    // pysakointihalli ja latauspiste tayttavat eri kentat kuin alue.
+    function lastSummaryRowEl(){
+      let el = null, best = -1;
+      ['summary-header','summary-type','summary-operator'].forEach(id => {
+        const e = document.getElementById(id);
+        if (!e || !e.textContent || !e.textContent.trim()) return;
+        const b = e.offsetTop + e.offsetHeight;
+        if (b > best) { best = b; el = e; }
+      });
+      return el;
     }
+
+    function sheetBaseVisible(){
+      // offsetTop/offsetHeight, EI getBoundingClientRect-erotusta: offset-arvot
+      // lasketaan lahimmasta positioidusta esi-isasta (#bottom-sheet) eivatka
+      // vality transformista, animaatiosta tai visibilitysta.
+      const btnEl  = document.getElementById('action-btn');
+      const btnH   = btnContainer.offsetHeight || 94;
+      // Napin TODELLINEN ylareuna: containerin korkeus miinus napin oma
+      // sijainti containerin sisalla (= containerin padding-top).
+      const btnTop = Math.max(0, btnH - (btnEl ? btnEl.offsetTop : 12));
+      const last   = lastSummaryRowEl();
+      let lastBottom = last ? (last.offsetTop + last.offsetHeight) : 0;
+      if (!isFinite(lastBottom) || lastBottom < 40) lastBottom = 96;
+      return Math.max(TP_SHEET.minBase,
+                      Math.round(lastBottom + btnTop + TP_SHEET.gapAboveBtn + _baseFix));
+    }
+
+    // Varmistuskierros animaation jalkeen: mitataan paljonko viimeinen
+    // tekstirivi on TODELLISUUDESSA napin ylareunasta ja siirretaan sheettia
+    // erotuksen verran. Ero jaa muistiin, joten korjaus tarvitaan vain kerran.
+    function sheetAlignBase(){
+      if (!sheetOpen || filterMode) return;
+      // Ei kesken vedon eika jos kayttaja on jo siirtanyt sheetin muualle.
+      try { if (isDragging) return; } catch(e){}
+      if (Math.abs(currentY - (sheet.clientHeight - sheetBaseVisible())) > 3) return;
+      const btnEl = document.getElementById('action-btn');
+      const last  = lastSummaryRowEl();
+      if (!btnEl || !last) return;
+      const target = btnEl.getBoundingClientRect().top - TP_SHEET.gapAboveBtn;
+      const now    = last.getBoundingClientRect().bottom;
+      const d = target - now;              // > 0 = sheettia lasketaan
+      if (!isFinite(d) || Math.abs(d) < 1 || Math.abs(d) > 500) return;
+      _baseFix = Math.max(-500, Math.min(500, _baseFix - d));
+      const t = Math.min(sheetLevelHidden(), Math.max(sheetLevelTop(), currentY + d));
+      sheet.style.transition = 'transform 0.16s ease-out';
+      sheet.style.transform  = 'translateY(' + t + 'px)';
+      currentY = t;
+      applySheetChrome(t);
+    }
+
     // Nimi säilytetty, jotta vanhat kutsupaikat toimivat.
     function sheetLevelCollapsed() { return sheet.clientHeight - sheetBaseVisible(); }
     // +TP_SHEET.hideOvershoot: sheetin oma box-shadow (0 -2px 24px) ulottuu
@@ -17819,6 +17848,12 @@
       // ennen animoitua siirtoa, jotta nappi seuraa sheettiä pehmeästi.
       btnContainer.style.transition = 'opacity 0.3s ease, transform ' + _d + ' cubic-bezier(0.25,0.46,0.45,0.94)';
       applySheetChrome(t);
+      // Jos kohde on perustaso, tarkistetaan animaation jalkeen etta viimeinen
+      // tekstirivi todella osui TP_SHEET.gapAboveBtn:n paahan napin ylareunasta.
+      if (sheetOpen && !filterMode && Math.abs(t - (sheet.clientHeight - sheetBaseVisible())) < 2) {
+        clearTimeout(window.__tpAlignTimer);
+        window.__tpAlignTimer = setTimeout(sheetAlignBase, (ms || TP_SHEET.snapMs) + 60);
+      }
 
       // When the filter sheet settles at the top, measure its real on-screen
       // position after the animation and size the content so it fills exactly
