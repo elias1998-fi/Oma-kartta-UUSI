@@ -34,7 +34,10 @@
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #f0f1f2; height: -webkit-fill-available; }
-    #map { width: 100%; height: 100%; height: -webkit-fill-available; }
+    #map { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; }
+    /* Varmuuden vuoksi: jos kartta jostain syystä ei peitä reunaa, taustalla
+       on kartan oma sävy eikä vaalean harmaa. */
+    html, body { background: #e8e6e1; }
 
     /* ── Portrait-lock fallback for in-browser use ─────────────────────
        When the device is in landscape, rotate the whole body so the
@@ -1516,6 +1519,11 @@
       display: flex; 
       flex-direction: column;
     }
+    /* Suljettuna sheet ja toimintonappi otetaan kokonaan pois renderöinnistä.
+       Pelkkä transform jätti reunaan pikselin verran sheetin yläreunaa ja sen
+       box-shadow'n; visibility:hidden poistaa molemmat varmasti. Luokka
+       lisätään vasta liu'un jälkeen (closeAreaSheet), joten animaatio näkyy. */
+    #bottom-sheet.tp-gone, #btn-container.tp-gone { visibility: hidden !important; }
     #drag-handle-area { width: 100%; padding: 8px 0 6px 0; display: flex; justify-content: center; flex-shrink: 0; position: relative; }
 
     /* ── "Directions" button (above the main action button) ────────────
@@ -1716,7 +1724,7 @@
     #filter-reset-btn.visible { display: inline-flex; }
     #sheet-normal { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
     /* Hiipuminen välitasolla: JS asettaa opacityn, CSS pehmentää snap-hypyt. */
-    #sheet-normal, #sheet-nav-row { transition: opacity 0.18s linear; }
+    #sheet-divider, #sheet-details, #sheet-report-btn, #sheet-nav-row { transition: opacity 0.18s linear; }
     #sheet-summary { padding: 13px 20px 8px 20px; flex-shrink: 0; font-family: Arial, sans-serif; }
     #summary-header { font-size: 15px; font-weight: bold; color: #222; margin-bottom: 3px; }
     #summary-type { font-size: 14px; color: #555; }
@@ -5116,7 +5124,8 @@
     </div>
   </div>
 
-  <div id="bottom-sheet">
+  <!-- tp-gone: piilossa heti latauksessa, poistuu kun kohde valitaan -->
+  <div id="bottom-sheet" class="tp-gone">
     <!-- Credit line. Shares its spot with the Ajanhetki pill: whenever the pill
          is visible this is hidden, and it returns the moment the pill goes away
          (dismissed, filter open, or zoom < 13). The swap lives in
@@ -5571,7 +5580,7 @@
     <div id="start-btn-container"><button id="start-btn" class="disabled">Aseta pysäköintiaika</button></div>
   </div>
 
-  <div id="btn-container">
+  <div id="btn-container" class="tp-gone">
     <button id="action-btn">Siirrä kursori pysäköintialueelle</button>
   </div>
 
@@ -5579,7 +5588,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-07-31-c';
+    const APP_BUILD   = '2026-07-31-d';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -14379,6 +14388,8 @@
     
     const filterCloseBtn=document.getElementById('filter-close-btn'),sheetNormal=document.getElementById('sheet-normal'),sheetFilter=document.getElementById('sheet-filter');
     function openFilter(){
+      const _s = document.getElementById('bottom-sheet'); if (_s) _s.classList.remove('tp-gone');
+      const _b = document.getElementById('btn-container'); if (_b) _b.classList.remove('tp-gone');
       filterMode=true;
       document.body.classList.add('filter-mode');
       filterCloseBtn.classList.add('visible');
@@ -17614,12 +17625,13 @@
     //  katoavat kokonaan.
     // ══════════════════════════════════════════════════════════════════
     const TP_SHEET = {
-      collapsed:  75,     // px näkyvissä kun nappi on omalla paikallaan
-      mid:        153,    // px näkyvissä välitason yläreunassa
-      fadeBand:   50,     // välitason korkeus px
-      dismissPx:  45,     // kuinka paljon kollapsitason alle → sulkeutuu
+      minBase:    120,    // perustason alaraja px, jos mittaus epäonnistuu
+      fadeBand:   50,     // välitason korkeus px perustason yläpuolella
+      dismissPx:  45,     // kuinka paljon perustason alle → sulkeutuu
       dismissVel: 0.8,    // nopea alasveto → sulkeutuu heti
-      hideOvershoot: 48   // ylimääräinen matka piiloon (varjon takia)
+      hideOvershoot: 48,  // ylimääräinen matka piiloon (varjon takia)
+      openMs:     620,    // sheetin nousu klikkauksesta (hitaampi)
+      snapMs:     350     // tavallinen napsautus tasolle
     };
     // Toimintonapin piilotusasento — riittävän kaukana ruudun alapuolella.
     const TP_BTN_HIDDEN = 'translateY(calc(100% + 48px))';
@@ -17627,8 +17639,25 @@
     let sheetFadeArmed = true;    // tapahtuuko hiipumista
 
     function sheetLevelTop()       { return sheet.clientHeight - window.innerHeight * 0.8; }
-    function sheetLevelMid()       { return sheet.clientHeight - TP_SHEET.mid; }
-    function sheetLevelCollapsed() { return sheet.clientHeight - TP_SHEET.collapsed; }
+
+    // PERUSTASO mitataan sisällöstä: sheetin näkyvä korkeus on
+    // (tiivistelmälohkon alareuna sheetin yläreunasta) + toimintonapin korkeus.
+    // Silloin #sheet-summary (nimi, tyyppi, omistaja) jää tasan napin
+    // yläpuolelle ja erotinviiva + Päivät/Tunnit/Hinta-taulukko juuri sen
+    // taakse piiloon. Mitta luetaan joka kerta uudestaan, koska sisältö
+    // vaihtelee (aluekoodi-badge, latauspiste, halli).
+    function sheetBaseVisible(){
+      const btnH = btnContainer.offsetHeight || 94;
+      let below = 96;
+      try {
+        const sum = document.getElementById('sheet-summary');
+        if (sum) below = sum.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top;
+      } catch(e){}
+      if (!isFinite(below) || below < 40) below = 96;
+      return Math.max(TP_SHEET.minBase, Math.round(below + btnH));
+    }
+    // Nimi säilytetty, jotta vanhat kutsupaikat toimivat.
+    function sheetLevelCollapsed() { return sheet.clientHeight - sheetBaseVisible(); }
     // +TP_SHEET.hideOvershoot: sheetin oma box-shadow (0 -2px 24px) ulottuu
     // ~26 px sen yläreunan yläpuolelle, joten pelkkä clientHeight jättäisi
     // himmeän kaistan ruudun alalaitaan.
@@ -17646,14 +17675,24 @@
       // Täyteen kokoon nostettu → hiipuminen pois päältä.
       if (sheetOpen && ty <= sheetLevelTop() + 2) sheetFadeArmed = false;
 
+      // Tiivistelmä (nimi/tyyppi/omistaja) on perustasolla jo kokonaan
+      // näkyvissä, joten hiipuminen koskee vain sen alapuolista osaa:
+      // erotinviivaa, hinta- ja aikatietoja sekä nappiriviä. Kaista on
+      // perustasosta TP_SHEET.fadeBand verran ylöspäin.
       let o = 1;
       if (sheetOpen && sheetFadeArmed && !filterMode) {
         const visible = sheet.clientHeight - ty;
-        o = (visible - (TP_SHEET.mid - TP_SHEET.fadeBand)) / TP_SHEET.fadeBand;
+        o = (visible - sheetBaseVisible()) / TP_SHEET.fadeBand;
         o = Math.max(0, Math.min(1, o));
       }
-      if (typeof sheetNormal !== 'undefined' && sheetNormal) sheetNormal.style.opacity = o;
+      if (typeof sheetNormal !== 'undefined' && sheetNormal) sheetNormal.style.opacity = '';
+      const _dv = document.getElementById('sheet-divider');
+      const _dt = document.getElementById('sheet-details');
+      const _rb = document.getElementById('sheet-report-btn');
       const _nr = document.getElementById('sheet-nav-row');
+      if (_dv) _dv.style.opacity = o;
+      if (_dt) _dt.style.opacity = o;
+      if (_rb) _rb.style.opacity = o;
       if (_nr) _nr.style.opacity = o;
     }
 
@@ -17669,7 +17708,10 @@
       btnContainer.style.opacity = '';
       if (typeof updateNavBtnVisibility === 'function') updateNavBtnVisibility();
       if (typeof updateAjanhetkiPillVisibility === 'function') updateAjanhetkiPillVisibility();
-      snapTo(wasOpen ? currentY : sheetLevelCollapsed());
+      sheet.classList.remove('tp-gone');
+      btnContainer.classList.remove('tp-gone');
+      // Mitta luetaan vasta kun sisältö on renderöity ja piilotus purettu.
+      snapTo(wasOpen ? currentY : sheetLevelCollapsed(), wasOpen ? TP_SHEET.snapMs : TP_SHEET.openMs);
     }
 
     // Sulkee sheetin ja toimintonapin kokonaan ruudun alapuolelle.
@@ -17694,6 +17736,14 @@
       try { if (typeof applyPoiHighlights === 'function') applyPoiHighlights(); } catch(e){}
       try { if (typeof updateNavBtnVisibility === 'function') updateNavBtnVisibility(); } catch(e){}
       try { if (typeof updateAjanhetkiPillVisibility === 'function') updateAjanhetkiPillVisibility(); } catch(e){}
+      // Liu'un jälkeen otetaan renderöinnistä kokonaan pois.
+      clearTimeout(window.__tpGoneTimer);
+      window.__tpGoneTimer = setTimeout(() => {
+        if (!sheetOpen && !filterMode) {
+          sheet.classList.add('tp-gone');
+          btnContainer.classList.add('tp-gone');
+        }
+      }, TP_SHEET.snapMs + 60);
     }
     window.closeAreaSheet = closeAreaSheet;
     window.openAreaSheet  = openAreaSheet;
@@ -17706,6 +17756,8 @@
         sheet.style.transform  = 'translateY(' + sheetLevelHidden() + 'px)';
         currentY = sheetLevelHidden();
         btnContainer.style.transform = TP_BTN_HIDDEN;
+        sheet.classList.add('tp-gone');
+        btnContainer.classList.add('tp-gone');
       };
       put();
       window.addEventListener('resize', put);
@@ -17732,8 +17784,9 @@
     });
 
     let startY=0,startTranslate=0,lastY=0,lastTime=0,velocity=0,isDragging=false;
-    function snapTo(t){
-      sheet.style.transition='transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94)';
+    function snapTo(t, ms){
+      const _d = ((ms || (typeof TP_SHEET !== 'undefined' ? TP_SHEET.snapMs : 350)) / 1000) + 's';
+      sheet.style.transition='transform ' + _d + ' cubic-bezier(0.25,0.46,0.45,0.94)';
       sheet.style.transform=`translateY(${t}px)`;
       currentY=t;
 
@@ -17745,7 +17798,7 @@
       updateOsmOpacity(t);
       // Vedon ajaksi napin transform-siirtymä otettiin pois; palautetaan se
       // ennen animoitua siirtoa, jotta nappi seuraa sheettiä pehmeästi.
-      btnContainer.style.transition = 'opacity 0.3s ease, transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94)';
+      btnContainer.style.transition = 'opacity 0.3s ease, transform ' + _d + ' cubic-bezier(0.25,0.46,0.45,0.94)';
       applySheetChrome(t);
 
       // When the filter sheet settles at the top, measure its real on-screen
@@ -18022,7 +18075,6 @@
         // Palauta pehmeä siirtymä napille (vedon ajaksi se otettiin pois).
         btnContainer.style.transition = 'opacity 0.3s ease, transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94)';
         const topY = sheetLevelTop();
-        const midY = sheetLevelMid();
         const colY = sheetLevelCollapsed();
 
         // Kollapsitason alapuolella ollaan irrotusalueella: riittävän pitkä
@@ -18036,7 +18088,7 @@
           return;
         }
 
-        const levels = [topY, midY, colY];
+        const levels = [topY, colY];
         let si = 0;
         for(let i=1;i<levels.length;i++){
           if(Math.abs(startTranslate - levels[i]) < Math.abs(startTranslate - levels[si])) si = i;
