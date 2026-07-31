@@ -5608,7 +5608,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-07-31-k';
+    const APP_BUILD   = '2026-07-31-l';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -10089,8 +10089,8 @@
       map.addLayer({
         id: 'halli-icons', type: 'symbol', source: 'halli-points',
         layout: {
-          'icon-image': ['step', ['zoom'], 'halli-plain', 14, 'halli-icon'],
-          'icon-size': ['interpolate', ['linear'], ['zoom'], 13.99, 0.25, 14, 0.675],
+          'icon-image': 'halli-icon',   // aina varsinainen ikoni, ei kuutiota kaukaa
+          'icon-size': 0.675,   // VAKIO — ei enää zoom-sidottua pulpahdusta (0.675 = entinen suurin koko)
           'icon-allow-overlap': true, 'icon-anchor': 'center'
         }
       });
@@ -10108,8 +10108,8 @@
           id: 'halli-hi-icon', type: 'symbol', source: 'halli-points',
           filter: _hiNone,
           layout: {
-            'icon-image': ['step', ['zoom'], 'halli-plain-hi', 14, 'halli-icon-hi'],
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 13.99, 0.25, 14, 0.675],
+            'icon-image': 'halli-icon-hi',
+            'icon-size': 0.675,   // VAKIO — ei enää zoom-sidottua pulpahdusta (0.675 = entinen suurin koko)
             'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
           }
         });
@@ -13511,8 +13511,8 @@
             map.addLayer({
               id: 'charging-icons', type: 'symbol', source: 'charging-points',
               layout: {
-                'icon-image': ['step', ['zoom'], ['case', ['get','available'], 'charging-plain-green', 'charging-plain-gray'], 14, ['case', ['get','available'], 'charging-green', 'charging-gray']],
-                'icon-size': ['interpolate', ['linear'], ['zoom'], 13.99, 0.125, 14, 0.1875, 16, 0.3375], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
+                'icon-image': ['case', ['get','available'], 'charging-green', 'charging-gray'],   // aina varsinainen ikoni
+                'icon-size': 0.3375, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
               }
             });
             // Korostuskerros p-merkin ALLA olevalle latauspisteelle: suurennettu,
@@ -13523,8 +13523,8 @@
                 id: 'charging-hi-icon', type: 'symbol', source: 'charging-points',
                 filter: _chNone,
                 layout: {
-                  'icon-image': ['step', ['zoom'], ['case', ['get','available'], 'charging-plain-green-hi', 'charging-plain-gray-hi'], 14, ['case', ['get','available'], 'charging-green-hi', 'charging-gray-hi']],
-                  'icon-size': ['interpolate', ['linear'], ['zoom'], 13.99, 0.125, 14, 0.1875, 16, 0.3375], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
+                  'icon-image': ['case', ['get','available'], 'charging-green-hi', 'charging-gray-hi'],
+                  'icon-size': 0.3375, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
                 }
               });
             }
