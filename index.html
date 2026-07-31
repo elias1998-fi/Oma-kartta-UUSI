@@ -5608,7 +5608,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-07-31-j';
+    const APP_BUILD   = '2026-07-31-k';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5671,23 +5671,16 @@
     const PARKING_TILES_URL = 'https://glphxelazjodpiekmoew.supabase.co/functions/v1/parking-tiles';
     const SUPABASE_KEY = 'sb_publishable_MEZLuJOl-QsZxgLZI3nnTA_e-xL5VQW';
     // ── Karttatyylin tuoreus ────────────────────────────────────────────
-    // Mapbox Studion Publish paivittaa tyylin, mutta selain — ja etenkin
-    // kotivalikkoon asennettu web-app — voi tarjoilla vanhaa kopiota pitkaan.
-    // Lisataan tyyli- ja sprite-pyyntoihin kertaluonteinen parametri, jolloin
-    // jokainen sovelluksen kaynnistys (ja "Paivita tyyli" -nappi) hakee tyylin
-    // uutena. HUOM: Mapboxin oma CDN-viive julkaisun jalkeen (dokumentoitu
-    // vahintaan ~15 min) jaa silti voimaan — sita ei voi ohittaa.
-    let _styleCacheBust = Date.now().toString(36);
-    let _styleBustEnabled = true;   // vahdin 2. vaihe sammuttaa taman
-    function bustStyleUrl(url) {
-      if (!_styleBustEnabled) return url;
-      if (!/api\.mapbox\.com\/styles\/v1\//.test(url)) return url;
-      return url + (url.indexOf('?') === -1 ? '?' : '&') + 'fresh=' + _styleCacheBust;
-    }
-    function transformRequest(url, resourceType) {
-      if (url.includes('digitransit.fi')) return { url, headers: { 'digitransit-subscription-key': API_KEY } };
-      if (resourceType === 'Style' || resourceType === 'SpriteJSON' || resourceType === 'SpriteImage') {
-        return { url: bustStyleUrl(url) };
+    // ÄLÄ LISÄÄ OMIA QUERY-PARAMETREJA MAPBOXIN TYYLI-URLIIN.
+    // Buildissa -i lisättiin tyylipyyntöön `&fresh=<leima>` selaimen
+    // välimuistin ohittamiseksi. Mapboxin Styles API hylkäsi sen:
+    //   Error: (400): https://api.mapbox.com/styles/v1/elias1998/…&fresh=ms9fuu9e
+    // → kartta jäi kokonaan tyhjäksi. API hyväksyy vain omat parametrinsa
+    // (sdk, access_token, optimize…). Tyylin tuoreus hoidetaan siis
+    // setStyle-uudelleenlatauksella (refreshMapStyle), ei URLia muokkaamalla.
+    function transformRequest(url) {
+      if (url.includes('digitransit.fi')) {
+        return { url, headers: { 'digitransit-subscription-key': API_KEY } };
       }
       return { url };
     }
@@ -5996,7 +5989,7 @@
     // Chooses which style JSON to load. Migrates from the legacy boolean
     // tp_darkmode key when tp_mapstyle hasn't been written yet.
     // Oma Mapbox Studio -tyyli. Kun tata muokkaa Studiossa ja painaa Publish,
-    // muutokset tulevat sovellukseen (ks. bustStyleUrl alempana).
+    // muutokset tulevat sovellukseen kun tyyli ladataan uudelleen.
     const MY_STUDIO_STYLE = 'mapbox://styles/elias1998/cms9akf7k008701sfc6lyhtie';
     const MAP_STYLE_URLS = {
       original: MY_STUDIO_STYLE,
@@ -6032,20 +6025,19 @@
     map.touchZoomRotate.disableRotation();
 
     // ══ KARTTATYYLIN LATAUSVAHTI ═══════════════════════════════════════
-    // Jos oma Studio-tyyli ei lataudu (vaara id, julkaisematon tyyli, tokenin
-    // URL-rajaus, verkkovirhe), kartta jaisi kokonaan tyhjaksi. Kokeillaan
-    // jarjestyksessa:
-    //   1) oma tyyli + tuoreusparametri
-    //   2) oma tyyli ILMAN tuoreusparametria  (paljastaa jos parametri haittaa)
-    //   3) mapbox/streets-v12                 (varmasti toimiva varatyyli)
-    // Lopputulos nakyy Asetukset -> Tietoja sovelluksesta -> Kartan tyyli.
+    // Jos oma Studio-tyyli ei lataudu, kartta jäisi kokonaan tyhjäksi.
+    // Siirrytään silloin varatyyliin. Vahti laukeaa kahdesta suunnasta:
+    // heti tyylipyynnön virheestä, tai 8 s aikakatkaisusta.
     const STYLE_FALLBACK = 'mapbox://styles/mapbox/streets-v12';
     window.TP_STYLE_DIAG = 'ladataan…';
     window.TP_LAST_MAP_ERROR = '';
-    let _styleStage = 0, _styleWatchTimer = null;
+    let _styleFellBack = false, _styleWatchTimer = null;
 
-    function applyStyleUrl(url, note){
-      window.TP_STYLE_DIAG = note;
+    function useFallbackStyle(reason){
+      if (_styleFellBack) return;
+      _styleFellBack = true;
+      clearTimeout(_styleWatchTimer);
+      window.TP_STYLE_DIAG = 'oma tyyli ei latautunut (' + reason + ') — varatyyli streets-v12';
       let done = false;
       const reapply = () => {
         if (done) return;
@@ -6054,38 +6046,35 @@
         try { reapplyMapLayers(); } catch(e){}
       };
       map.once('style.load', reapply);
-      map.setStyle(url, { diff: false });
+      map.setStyle(STYLE_FALLBACK, { diff: false });
       setTimeout(reapply, 400);
+      if (typeof showCustomToast === 'function') {
+        showCustomToast('Oma karttatyyli ei latautunut — käytössä varatyyli', 4000);
+      }
     }
 
-    function startStyleWatchdog(){
-      clearTimeout(_styleWatchTimer);
-      _styleWatchTimer = setTimeout(() => {
-        if (map.isStyleLoaded()) return;
-        _styleStage++;
-        if (_styleStage === 1) {
-          _styleBustEnabled = false;
-          applyStyleUrl(MAP_STYLE_URLS[mapStyleChoice], 'oma tyyli ei latautunut — yritetaan ilman tuoreusparametria');
-          startStyleWatchdog();
-        } else if (_styleStage === 2) {
-          applyStyleUrl(STYLE_FALLBACK, 'oma tyyli ei latautunut — kaytossa varatyyli streets-v12');
-          startStyleWatchdog();
-          if (typeof showCustomToast === 'function') {
-            showCustomToast('Oma karttatyyli ei latautunut — käytössä varatyyli', 4000);
-          }
-        }
-      }, 7000);
-    }
+    // Virhe tyylipyynnössä → varatyyliin heti, ei odoteta aikakatkaisua.
+    map.on('error', (e) => {
+      const m = (e && e.error && e.error.message) ? e.error.message : '';
+      if (m) window.TP_LAST_MAP_ERROR = String(m).slice(0, 240);
+      if (/\/styles\/v1\//.test(m)) {
+        const code = (m.match(/\((\d{3})\)/) || [])[1] || 'virhe';
+        useFallbackStyle(code);
+      }
+    });
 
     map.on('style.load', () => {
       clearTimeout(_styleWatchTimer);
       let lc = 0;
       try { lc = (map.getStyle().layers || []).length; } catch(e){}
-      const src = (_styleStage === 0) ? 'oma tyyli' : (_styleStage === 1 ? 'oma tyyli (ilman tuoreusparametria)' : 'varatyyli streets-v12');
-      // Tasomaara paljastaa myos sen, jos tyyli latautui mutta on TYHJA.
+      const src = _styleFellBack ? 'varatyyli streets-v12' : 'oma tyyli';
+      // Tasomäärä paljastaa myös sen, jos tyyli latautui mutta on TYHJÄ.
       window.TP_STYLE_DIAG = src + ' · ' + lc + ' tasoa' + (lc < 3 ? ' — TYHJÄ TYYLI?' : '');
     });
-    startStyleWatchdog();
+
+    _styleWatchTimer = setTimeout(() => {
+      if (!map.isStyleLoaded()) useFallbackStyle('aikakatkaisu');
+    }, 8000);
 
     // Kartan sisäinen koko on pidettävä säiliön TODELLISEN koon mukaisena.
     // Pelkkä window-'resize' ei riitä: säiliö voi saada lopullisen kokonsa vasta
@@ -11760,8 +11749,10 @@
     // Hakee nykyisen tyylin uudestaan Mapboxilta. Kaytetaan Studio-julkaisun
     // jalkeen, jotta muutokset nakyvat ilman sovelluksen uudelleenasennusta.
     function refreshMapStyle() {
-      _styleCacheBust = Date.now().toString(36);      // uusi parametri -> tuore haku
+      // Tyhjennetään Mapbox GL:n oma väli­muisti ja ladataan tyyli uudestaan.
+      // URLiin EI kosketa — ks. transformRequestin kommentti (400-virhe).
       try { if (mapboxgl.clearStorage) mapboxgl.clearStorage(); } catch(e){}
+      _styleFellBack = false;
       let _reapplied = false;
       const doReapply = () => {
         if (_reapplied) return;
