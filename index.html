@@ -80,6 +80,11 @@
     #center-marker { display: none !important; }
     /* GPS-tarkkuusvaroitus kuului P-merkkiin. */
     #gps-warning { display: none !important; }
+    /* Aluekoodi-, latauspiste- ja hallimerkki poistettu sheetin vasemmasta
+       ylakulmasta. Elementti jaa DOM:iin: "Jaa kaverille" lukee siita alue-
+       koodin, ja usea funktio kirjoittaa siihen. !important tarvitaan, koska
+       ne asettavat display:inline-block suoraan style-attribuuttiin. */
+    #area-code-badge { display: none !important; }
     /* Attribuutiotekstit pois näytöltä (käyttäjän pyyntö). */
     #osm-attribution { display: none !important; }
     /* Belt-and-braces: hide the P-marker outright in filter / search /
@@ -1524,7 +1529,7 @@
        box-shadow'n; visibility:hidden poistaa molemmat varmasti. Luokka
        lisätään vasta liu'un jälkeen (closeAreaSheet), joten animaatio näkyy. */
     #bottom-sheet.tp-gone, #btn-container.tp-gone { visibility: hidden !important; }
-    #drag-handle-area { width: 100%; padding: 8px 0 6px 0; display: flex; justify-content: center; flex-shrink: 0; position: relative; }
+    #drag-handle-area { width: 100%; padding: 7px 0 4px 0; display: flex; justify-content: center; flex-shrink: 0; position: relative; }
 
     /* ── "Directions" button (above the main action button) ────────────
        Visible only when a parking area is currently selected. Sits inside
@@ -1725,7 +1730,7 @@
     #sheet-normal { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
     /* Hiipuminen välitasolla: JS asettaa opacityn, CSS pehmentää snap-hypyt. */
     #sheet-divider, #sheet-details, #sheet-report-btn, #sheet-nav-row { transition: opacity 0.18s linear; }
-    #sheet-summary { padding: 13px 20px 8px 20px; flex-shrink: 0; font-family: Arial, sans-serif; }
+    #sheet-summary { padding: 7px 20px 6px 20px; flex-shrink: 0; font-family: Arial, sans-serif; }
     #summary-header { font-size: 15px; font-weight: bold; color: #222; margin-bottom: 3px; }
     #summary-type { font-size: 14px; color: #555; }
     #summary-operator { font-size: 14px; color: #555; margin-top: 2px; }
@@ -2070,8 +2075,8 @@
       right: 0; 
       z-index: 9990; 
       background: white; 
-      padding: 12px 16px; 
-      padding-bottom: max(24px,env(safe-area-inset-bottom)); 
+      padding: 10px 16px; 
+      padding-bottom: max(20px,env(safe-area-inset-bottom)); 
       /* Liikkuu sheetin mukana kun sheettiä vedetään kollapsitason alle. */
       transform: translateY(calc(100% + 48px));
       transition: opacity 0.3s ease, transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94);
@@ -5588,7 +5593,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-07-31-f';
+    const APP_BUILD   = '2026-07-31-g';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
