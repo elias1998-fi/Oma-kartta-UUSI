@@ -56,11 +56,10 @@
     /* Mapbox GL: LOGO JA ATTRIBUUTIO ON PIDETTÄVÄ NÄKYVISSÄ (Mapboxin
        käyttöehdot). Piilotetaan vain kirjaston omat nappiryhmät — sijainti-
        ja valikkonapit ovat sovelluksen omia. */
+    .mapboxgl-ctrl { display: none !important; }
     .mapboxgl-ctrl-group { display: none !important; }
-    .mapboxgl-ctrl-bottom-left,
-    .mapboxgl-ctrl-bottom-right { z-index: 12; }
-    .mapboxgl-ctrl-attrib { font-size: 10px; }
-    .mapboxgl-ctrl-attrib-inner a { color: #444; }
+    .mapboxgl-ctrl-attrib { display: none !important; }
+    .mapboxgl-ctrl-logo { display: none !important; }
     /* ── Unified center marker ────────────────────────────────────────
        One element that morphs between two states:
        - Collapsed (default): just the P pin
@@ -74,6 +73,12 @@
       display: flex; flex-direction: column; align-items: center;
     }
     #center-marker.hidden { display: none !important; }
+    /* P-merkki poistettu käytöstä — valinta tapahtuu klikkaamalla. */
+    #center-marker { display: none !important; }
+    /* GPS-tarkkuusvaroitus kuului P-merkkiin. */
+    #gps-warning { display: none !important; }
+    /* Attribuutiotekstit pois näytöltä (käyttäjän pyyntö). */
+    #osm-attribution { display: none !important; }
     /* Belt-and-braces: hide the P-marker outright in filter / search /
        plus modes so it can't sneak back in via a stale class. */
     body.filter-mode   #center-marker,
@@ -5569,7 +5574,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-07-31-a';
+    const APP_BUILD   = '2026-07-31-b';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5965,7 +5970,7 @@
       minZoom: 5, maxZoom: 20,
       transformRequest, maxTileCacheSize: 50, fadeDuration: 100,
       dragRotate: false, touchPitch: false, pitchWithRotate: false,
-      keyboard: false, attributionControl: true, doubleClickZoom: false
+      keyboard: false, attributionControl: false, doubleClickZoom: false
     });
     map.touchZoomRotate.disableRotation();
 
@@ -8853,12 +8858,8 @@
       document.getElementById('sheet-divider').style.display  = 'block';
       document.getElementById('action-btn').textContent       = header;
       document.getElementById('action-btn').classList.add('active');
-      // Open at 153px from bottom (mid step). Bounds match the three-level snap below
-      // when the user drags: max = 80% of viewport, mid = 153px, min = 75px from bottom.
-      const bs = document.getElementById('bottom-sheet');
-      bs.style.transition = 'transform 0.2s ease';
-      bs.style.transform  = 'translateY(calc(100% - 153px))';
-      currentY = bs.offsetHeight - 153;
+      // Sheetin sijaintia EI kosketa täältä. Sisältö päivittyy, ja sheet
+      // tulee esiin vain openAreaSheet()-kutsulla (= karttakohteen klikkaus).
       masterFeatureLocked = true;
       clearTimeout(masterFeatureUnlockTimer);
       masterFeatureUnlockTimer = setTimeout(() => { masterFeatureLocked = false; }, 4000);
@@ -8909,12 +8910,7 @@
         document.getElementById('sheet-divider').style.display = 'none';
       }
       var _rb = document.getElementById('sheet-report-btn'); if (_rb) _rb.style.display = 'block';
-      // Auto-open to 153px from bottom when P-marker is on area
-      const bs = document.getElementById('bottom-sheet');
-      bs.style.transition = 'transform 0.38s cubic-bezier(0.22,1,0.36,1)';
-      bs.style.transform  = 'translateY(calc(100% - 153px))';
-      currentY = bs.offsetHeight - 153;
-      if (typeof updateOsmOpacity === 'function') updateOsmOpacity(currentY);
+      // Sheetin sijaintia EI kosketa täältä (ks. showMasterFeatureInSheet).
       // The nav button uses hoveredPolyId/currentParkingProps to know an
       // area is selected — refresh visibility now that the sheet has moved.
       if (typeof updateNavBtnVisibility === 'function') updateNavBtnVisibility();
@@ -8925,11 +8921,9 @@
       if (badge) { badge.style.display = 'none'; }
       // Collapse the on-map P-marker back to its plain pin form
       hideCenterBadge();
-      const bs = document.getElementById('bottom-sheet');
-      bs.style.transition = 'transform 0.38s cubic-bezier(0.22,1,0.36,1)';
-      bs.style.transform  = 'translateY(calc(100% - 90px))';
-      currentY = bs.offsetHeight - 90;
-      if (typeof updateOsmOpacity === 'function') updateOsmOpacity(currentY);
+      // Ei enää välitasoa tyhjälle sheetille — mitään ei ole valittuna, joten
+      // koko sheet ja toimintonappi menevät piiloon.
+      if (typeof closeAreaSheet === 'function' && sheetOpen) closeAreaSheet();
       document.getElementById('summary-header').textContent = '';
       document.getElementById('summary-type').textContent = '';
       document.getElementById('summary-operator').textContent = '';
@@ -9549,7 +9543,16 @@
       return true;
     }
 
-    function checkCenterHighlight() {
+    // P-merkki on poistettu, joten keskustunnistusta ei enää ajeta.
+    function checkCenterHighlight() { /* poistettu käytöstä */ }
+
+    // Renderöi KLIKATUN pysäköintialueen sheetille. Runko on entinen
+    // keskustunnistuksen koodi; ainoa ero on, että feature tulee parametrina
+    // eikä kartan keskipisteestä tehdystä kyselystä.
+    function renderAreaFeature(_feat) {
+      if (!_feat || !_feat.properties) return;
+      const cf = [_feat];
+      if (false) { // vanha keskustunnistuksen esikäsittely ohitetaan
       if (filterMode) return; // No P-marker detection / badge in filter view
       // While the directions flow is running, the P-marker is intentionally
       // hidden and we mustn't re-trigger its expanded/badge state from the
@@ -9593,7 +9596,7 @@
         [cpt.x - radius, cpt.y - radius],
         [cpt.x + radius, cpt.y + radius]
       ];
-      const cf  = map.queryRenderedFeatures(bbox, { layers: ['master-poly-fill'] });
+      }
       if (cf.length) {
         const f = cf[0];
         // Keep the on-map badge + disc icon in sync with the area actually
@@ -9754,7 +9757,11 @@
       }
     }
 
+    // Toimintonapin teksti asetetaan nykyään valinnan yhteydessä
+    // (renderAreaFeature / showChargingInSheet / showHalliInSheet).
     function updateButtonText() {
+      return;
+      /* eslint-disable no-unreachable */
       // Always show "Lähennä karttaa" when zoomed out, regardless of lock or hoveredPolyId
       const zoom = map.getZoom();
       const cm = document.getElementById('center-marker');
@@ -9773,20 +9780,7 @@
       const _noArea = !masterFeatureLocked && !hoveredPolyId &&
                       !(typeof hoveredChargingId !== 'undefined' && hoveredChargingId) &&
                       !(typeof hoveredHalliId !== 'undefined' && hoveredHalliId);
-      const _bs = document.getElementById('bottom-sheet');
-      if (_bs && _noArea && !inNav && !inFilter) {
-        const _t = _bs.style.transform || '';
-        if (zoom < 13 && !_t.includes('- 60px')) {
-          _bs.style.transition = 'transform 0.3s ease';
-          _bs.style.transform = 'translateY(calc(100% - 60px))';
-          const gw = document.getElementById('gps-warning'); if (gw) gw.classList.remove('visible');
-        } else if (zoom >= 13 && (_t === '' || _t.includes('- 60px'))) {
-          _bs.style.transition = 'transform 0.3s ease';
-          _bs.style.transform = 'translateY(calc(100% - 90px))';
-          currentY = _bs.offsetHeight - 90;
-          const gw = document.getElementById('gps-warning'); if (gw) gw.classList.add('visible');
-        }
-      }
+      // (Sheetin 60/90 px -asemointi poistettu: perusnäkymässä sheettiä ei ole.)
       if (zoom < 13) {
         setActionBtnText('Lähennä karttaa');
         btn.classList.remove('active');
@@ -9846,7 +9840,16 @@
     // Click → flyTo (highlight already applied by mouseenter above)
     map.on('click', 'master-poly-fill', (e) => {
       if (!e.features.length) return;
-      const geom = e.features[0].geometry;
+      // Valinta tapahtuu nyt pelkastaan klikkaamalla.
+      const _f = e.features[0];
+      hoveredPolyId     = null;          // pakota uudelleenrenderointi
+      hoveredChargingId = null;
+      hoveredHalliId    = null;
+      currentParkingProps = _f.properties;
+      releaseMasterLock();
+      renderAreaFeature(_f);
+      if (typeof updateAjanhetkiPillVisibility === 'function') updateAjanhetkiPillVisibility();
+      const geom = _f.geometry;
       const ring = geom.type === 'MultiPolygon' ? geom.coordinates[0][0] : geom.coordinates[0];
       if (ring && ring.length) {
         const lng = ring.reduce((s,c)=>s+c[0],0)/ring.length;
@@ -10021,11 +10024,17 @@
       // bind these delegated handlers a second time.
       if (!_halliHandlersBound) {
         _halliHandlersBound = true;
-        map.on('mouseenter', 'halli-icons', (e) => {
-          map.getCanvas().style.cursor = 'pointer';
-          showHalliInfo(e);
+        map.on('mouseenter', 'halli-icons', () => {
+          map.getCanvas().style.cursor = 'pointer';   // ei enaa sisallon paivitysta hoverilla
         });
         map.on('click', 'halli-icons', (e) => {
+          if (hoveredPolyId && typeof clearHoverHighlight === 'function') clearHoverHighlight();
+          hoveredPolyId     = null;
+          hoveredChargingId = null;
+          currentParkingProps = null;
+          hoveredHalliId = e.features[0].properties.id;
+          if (typeof applyPoiHighlights === 'function') applyPoiHighlights();
+          if (typeof updateAjanhetkiPillVisibility === 'function') updateAjanhetkiPillVisibility();
           showHalliInfo(e);
           const coords = e.features[0].geometry.coordinates;
           map.flyTo({ center: coords, zoom: SELECT_ZOOM, duration: 800 });
@@ -13407,7 +13416,13 @@
                 if(!ft) return;
                 const coords = (ft.geometry && ft.geometry.coordinates) ? ft.geometry.coordinates.slice() : null;
                 if(filterMode && typeof closeFilter === 'function') closeFilter();
+                if (hoveredPolyId && typeof clearHoverHighlight === 'function') clearHoverHighlight();
+                hoveredPolyId  = null;
+                hoveredHalliId = null;
+                currentParkingProps = null;
                 hoveredChargingId = ft.properties.id;
+                if (typeof applyPoiHighlights === 'function') applyPoiHighlights();
+                if (typeof updateAjanhetkiPillVisibility === 'function') updateAjanhetkiPillVisibility();
                 scheduleHitRefetch();   // freshen this station's status on tap
                 showChargingInSheet(ft.properties);
                 if(coords) map.flyTo({ center: coords, zoom: SELECT_ZOOM, duration: 800 });
@@ -14598,7 +14613,12 @@
     function getPriceText(l){if(!l)return'-';const s=l.toLowerCase();if(s.includes('ilmainen'))return'Ilmainen pysäköintikiekolla';if(s.includes('maksullinen'))return'Maksullinen';if(s.includes('asukas'))return'Asukaspysäköinti';return l;}
     function formatHours(v){if(!v)return`<div class="hours-row"><span class="hours-day">Ma – Su</span><span class="hours-time">24 h</span></div>`;return`<div class="hours-row"><span class="hours-day">Ma – Pe</span><span class="hours-time">${v}</span></div><div class="hours-row"><span class="hours-day">La</span><span class="hours-time">${v}</span></div><div class="hours-row"><span class="hours-day">Su</span><span class="hours-time">–</span></div>`;}
     
+    // P-MERKKI POISTETTU: alueet, latauspisteet ja hallit valitaan vain
+    // klikkaamalla. Karttaa liikuteltaessa ei enää tapahdu mitään — funktio
+    // on jätetty paikalleen, koska sitä kutsutaan monesta kohtaa.
     function checkParking(){
+      return;
+      /* eslint-disable no-unreachable */
       if(filterMode)return;
       if(masterFeatureLocked)return;
       // During the directions flow, the navigation handler owns the
@@ -17644,6 +17664,16 @@
       btnContainer.style.transform = 'translateY(140%)';
       if (typeof sheetBackdrop !== 'undefined' && sheetBackdrop) sheetBackdrop.style.opacity = 0;
       if (typeof updateOsmOpacity === 'function') updateOsmOpacity(currentY);
+      // Valinta puretaan: korostukset pois ja tila nollaan, jotta saman
+      // alueen uudelleenklikkaus renderöi sheetin taas.
+      try { if (typeof clearHoverHighlight === 'function') clearHoverHighlight(); } catch(e){}
+      hoveredPolyId = null; hoveredChargingId = null; hoveredHalliId = null;
+      currentParkingProps = null;
+      window._badgeAreaId = null;
+      try { if (typeof releaseMasterLock === 'function') releaseMasterLock(); } catch(e){}
+      try { if (typeof applyPoiHighlights === 'function') applyPoiHighlights(); } catch(e){}
+      try { if (typeof updateNavBtnVisibility === 'function') updateNavBtnVisibility(); } catch(e){}
+      try { if (typeof updateAjanhetkiPillVisibility === 'function') updateAjanhetkiPillVisibility(); } catch(e){}
     }
     window.closeAreaSheet = closeAreaSheet;
     window.openAreaSheet  = openAreaSheet;
