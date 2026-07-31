@@ -5588,7 +5588,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-07-31-d';
+    const APP_BUILD   = '2026-07-31-e';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -17626,6 +17626,7 @@
     // ══════════════════════════════════════════════════════════════════
     const TP_SHEET = {
       minBase:    120,    // perustason alaraja px, jos mittaus epäonnistuu
+      gapAboveBtn: 5,     // väli viimeisen tekstirivin ja napin yläreunan välillä
       fadeBand:   50,     // välitason korkeus px perustason yläpuolella
       dismissPx:  45,     // kuinka paljon perustason alle → sulkeutuu
       dismissVel: 0.8,    // nopea alasveto → sulkeutuu heti
@@ -17647,14 +17648,32 @@
     // taakse piiloon. Mitta luetaan joka kerta uudestaan, koska sisältö
     // vaihtelee (aluekoodi-badge, latauspiste, halli).
     function sheetBaseVisible(){
-      const btnH = btnContainer.offsetHeight || 94;
-      let below = 96;
+      // 1) Etaisyys ruudun alareunasta TOIMINTONAPIN TODELLISEEN ylareunaan.
+      //    #btn-container on valkoinen maski, jonka oma padding-top (12 px) EI
+      //    kuulu nappiin — pelkka offsetHeight jatti siksi 12 px liikaa ilmaa.
+      const btnH   = btnContainer.offsetHeight || 94;
+      let   padTop = 12;
+      try { padTop = parseFloat(getComputedStyle(btnContainer).paddingTop) || 12; } catch(e){}
+      const btnTop = Math.max(0, btnH - padTop);
+
+      // 2) Tiivistelman VIIMEISEN kirjoitetun rivin alareuna sheetin ylareunasta.
+      //    Ei #sheet-summaryn alareunaa: sen padding-bottom (8 px) olisi taas
+      //    ylimaaraista ilmaa. Tyhjat rivit ohitetaan (halli/latauspiste
+      //    tayttavat eri kentat kuin pysakointialue).
+      let last = 0;
       try {
-        const sum = document.getElementById('sheet-summary');
-        if (sum) below = sum.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top;
+        const topRef = sheet.getBoundingClientRect().top;
+        ['summary-header','summary-type','summary-operator'].forEach(id => {
+          const el = document.getElementById(id);
+          if (!el || !el.textContent || !el.textContent.trim()) return;
+          const b = el.getBoundingClientRect().bottom - topRef;
+          if (isFinite(b) && b > last) last = b;
+        });
       } catch(e){}
-      if (!isFinite(below) || below < 40) below = 96;
-      return Math.max(TP_SHEET.minBase, Math.round(below + btnH));
+      if (!isFinite(last) || last < 40) last = 96;   // varasuunnitelma
+
+      // 3) Perustaso = viimeinen rivi + TP_SHEET.gapAboveBtn napin ylapuolelle.
+      return Math.max(TP_SHEET.minBase, Math.round(last + btnTop + TP_SHEET.gapAboveBtn));
     }
     // Nimi säilytetty, jotta vanhat kutsupaikat toimivat.
     function sheetLevelCollapsed() { return sheet.clientHeight - sheetBaseVisible(); }
