@@ -5642,7 +5642,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-02-h';
+    const APP_BUILD   = '2026-08-02-i';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -12297,24 +12297,16 @@
 
         // Latausmerkilliset kaupungit: pari keskitetään nimen alle, joten
         // P siirtyy vasemmalle puolet parin leveydestä ja lataus oikealle.
-        const evNames  = PARKING_CITIES.filter(c => c[4]).map(c => c[0]);
+        // Latausmerkki on nyt KAIKILLA kaupungeilla, joten pari on aina
+        // symmetrinen: P vasemmalle, lataus oikealle. Datariippuvaa ['case']-
+        // haaraa ei enää tarvita.
         const halfPair = (pinPx + CITY_PAIR_GAP_PX) / 2;
         const evIconSize = pinPx / CITY_EV_NATIVE;
-        const isEvCity = ['in', ['get', 'name'], ['literal', evNames]];
         const r2 = (v) => Math.round(v * 100) / 100;
 
-        // P-merkin siirto on datariippuvainen: latauskaupungeissa vasemmalle,
-        // muissa keskellä. ['zoom'] pysyy top-level-interpolaatiossa, ja
-        // ['case'] on sen ULOSTULONA — se on sallittua.
         const offsetExpr = ['interpolate', ['linear'], ['zoom']];
-        OFF_STOPS.forEach(z => {
-          const y = r2(offPx(z) / iconSize);
-          offsetExpr.push(z, evNames.length
-            ? ['case', isEvCity,
-                 ['literal', [r2(-halfPair / iconSize), y]],
-                 ['literal', [0, y]]]
-            : ['literal', [0, y]]);
-        });
+        OFF_STOPS.forEach(z => offsetExpr.push(z,
+          ['literal', [r2(-halfPair / iconSize), r2(offPx(z) / iconSize)]]));
 
         // Latausmerkin oma siirto (oikealle), omalla icon-sizella jaettuna.
         const evOffsetExpr = ['interpolate', ['linear'], ['zoom']];
@@ -12367,7 +12359,7 @@
           made++;
           _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'],
                                 labelId: lid, base: L.filter || null });
-          if (evNames.length) _cityEvPlan.push({
+          _cityEvPlan.push({
             id: 'tp-city-ev-' + i, labelId: lid, base: L.filter || null,
             def: Object.assign({}, def, {
               id: 'tp-city-ev-' + i,
@@ -12385,7 +12377,7 @@
             made++;
             _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'],
                                   labelId: lid, base: null });
-            if (evNames.length) _cityEvPlan.push({
+            _cityEvPlan.push({
               id: 'tp-city-ev-' + i, labelId: lid, base: null,
               def: Object.assign({}, def, {
                 id: 'tp-city-ev-' + i,
@@ -12406,13 +12398,13 @@
         if (!map.hasImage('city-ev-pin')) return;
         _cityEvPlan.forEach(pl => {
           if (map.getLayer(pl.id)) return;
-          const evFilter = ['in', ['get', 'name'], ['literal', PARKING_CITIES.filter(c => c[4]).map(c => c[0])]];
+          // Sama suodatin kuin P-merkillä — latausmerkki on kaikilla.
           const d = Object.assign({}, pl.def);
-          d.filter = pl.base ? ['all', pl.base, evFilter] : evFilter;
+          if (pl.base) d.filter = pl.base; else delete d.filter;
           try {
             map.addLayer(d, labelsBeforeId());
             _cityPinLayers.push({ id: pl.id, src: d.source, sl: d['source-layer'],
-                                  labelId: pl.labelId, base: pl.base, extra: evFilter });
+                                  labelId: pl.labelId, base: pl.base });
           } catch(e){ console.warn('city ev layer', pl.id, e); }
         });
       };
@@ -12443,6 +12435,23 @@
     //      tekstikoko ja merkki peri sen
     // Yksi kysely kartan asetuttua; ei kosketa sijaintiin millään tavalla.
     let _cityVisTimer = null;
+    // Kuuluuko paikka Suomeen? Ensisijaisesti tiilidatan maakoodista; jos
+    // kenttää ei ole, varana koordinaattitarkistus. Pelkkä laatikko ei riittäisi
+    // yksinään — se ottaisi mukaan mm. Pietarin ja Haaparannan.
+    let _cityIsoSeen = false;   // diagnostiikkaan: löytyikö maakoodikenttä
+    function isFinnishPlace(f){
+      const p = f.properties || {};
+      const iso = p.iso_3166_1 || p.iso3166_1 || p.country_code;
+      if (typeof iso === 'string' && iso.length) {
+        _cityIsoSeen = true;
+        return iso.toUpperCase() === 'FI';
+      }
+      const c = f.geometry && f.geometry.coordinates;
+      if (!Array.isArray(c) || c.length < 2) return false;
+      return c[0] >= FINLAND_BOUNDS[0][0] && c[0] <= FINLAND_BOUNDS[1][0] &&
+             c[1] >= FINLAND_BOUNDS[0][1] && c[1] <= FINLAND_BOUNDS[1][1];
+    }
+
     function bindCityPinVisibility(){
       if (!CITY_PIN_BIND_VISIBILITY) return;
       if (!_cityPinLayers.length) return;
@@ -12454,6 +12463,7 @@
       feats.forEach(f => {
         const nm = f.properties && f.properties.name;
         if (!nm) return;
+        if (!isFinnishPlace(f)) return;      // merkit vain Suomen kaupungeille
         const lid = f.layer && f.layer.id;
         // ⚠️ EI find(): samalla nimitasolla on KAKSI omaa tasoa (P-merkki ja
         // latausmerkki). find() palautti aina ensimmäisen eli P-tason, jolloin
@@ -12466,22 +12476,22 @@
 
       _cityPinLayers.forEach(rec => {
         if (!map.getLayer(rec.id)) return;
-        const arr = Array.from(perLayer.get(rec.id) || []);
-        // Nimiä voi nyt olla paljon (merkki kaikille kaupungeille). Jos lista
-        // kasvaa suureksi, ei rakenneta jättisuodatinta joka kierroksella vaan
-        // näytetään kaikki — törmäysero on silloin merkityksetön.
-        const mine = !arr.length
-          ? ['==', ['get', 'name'], '__tp_none__']          // ei yhtään → piilota
-          : (arr.length > 300 ? null
-                              : ['in', ['get', 'name'], ['literal', arr]]);
+        const arr = Array.from(perLayer.get(rec.id) || []).sort();
+        // Suodatin kirjoitetaan VAIN kun nimijoukko oikeasti muuttuu. Sidonta
+        // ajetaan 40 ms välein liikkeen aikana, ja setFilter pakottaa tason
+        // uudelleenasettelun — turha kirjoitus näkyisi nykimisenä.
+        const key = arr.join('\u0001');
+        if (rec.lastKey === key) return;
+        rec.lastKey = key;
+
+        const mine = arr.length
+          ? ['in', ['get', 'name'], ['literal', arr]]
+          : ['==', ['get', 'name'], '__tp_none__'];   // ei yhtään → piilota
         const parts = [];
-        if (rec.base)  parts.push(rec.base);
-        if (rec.extra) parts.push(rec.extra);   // latausmerkkitasojen kaupunkirajaus
-        if (mine)      parts.push(mine);
+        if (rec.base) parts.push(rec.base);
+        parts.push(mine);
         try {
-          map.setFilter(rec.id,
-            parts.length === 0 ? null :
-            parts.length === 1 ? parts[0] : ['all'].concat(parts));
+          map.setFilter(rec.id, parts.length === 1 ? parts[0] : ['all'].concat(parts));
         } catch(e){}
       });
     }
@@ -12554,6 +12564,7 @@
         : 'ei puuttuvia';
       return 'kuva ' + (img ? 'ok' : 'EI') +
              ' · lataus ' + (evImg ? 'ok' : 'EI') + '/' + evLayers + 'ta/' + evRendered + 'kpl' +
+             ' · maa ' + (_cityIsoSeen ? 'iso' : 'laatikko') +
              ' · ' + miss +
              ' · sidonta ' + (CITY_PIN_BIND_VISIBILITY ? 'päällä' : 'pois') +
 
