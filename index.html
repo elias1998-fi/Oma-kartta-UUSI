@@ -5612,7 +5612,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-o';
+    const APP_BUILD   = '2026-08-01-p';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -11879,7 +11879,9 @@
     //   punainen nimi, ei merkkiä → tekstin sisäinen kuva ei piirry
     //   ei mitään, mutta ikoni näkyy → tekstiosa ei piirry lainkaan
     //   ei mitään ollenkaan       → taso ei piirry vaikka kysely väittää muuta
-    const CITY_PIN_DEBUG = false;
+    // '' = tuotanto · 'imageonly' = tekstikentässä VAIN kuva, ei nimeä
+    // (ratkaiseva testi: piirtyykö tekstin sisäinen kuva ylipäätään)
+    const CITY_PIN_DEBUG = 'imageonly';
     let _cityPinLayers = [];             // { id, src, sl, mode } diagnostiikkaa varten
     let _cityPinAnchorInfo = '';         // diagnostiikkaan: ankkuri + laskettu siirto
 
@@ -11966,23 +11968,27 @@
         const nameExpr = (Array.isArray(orig) && orig[0] === 'format') ? ['get', 'name']
                        : (orig || ['get', 'name']);
 
-        layout['text-field'] = ['format',
-          nameExpr, { 'text-color': CITY_PIN_DEBUG ? 'rgba(220,0,0,1)' : 'rgba(0,0,0,0)' },
-          '\n', {},
-          ['image', 'city-pin'], {}
-        ];
-        if (CITY_PIN_DEBUG) {
-          // Toinen, riippumaton tapa piirtää sama merkki. Jos tämä näkyy mutta
-          // tekstin sisäinen ei, vika on nimenomaan tekstin sisäisessä kuvassa.
-          layout['icon-image']  = 'city-pin';
-          layout['icon-size']   = 0.5;
-          layout['icon-anchor'] = 'center';
+        if (CITY_PIN_DEBUG === 'imageonly') {
+          // RATKAISEVA TESTI: tekstikentässä on VAIN kuva, ei nimeä eikä
+          // rivinvaihtoa. Jos merkki näkyy kaupungin kohdalla → tekstin
+          // sisäinen kuva toimii ja vika on kaksirivisessä rakenteessa.
+          // Jos ei näy → tekstin sisäinen kuva ei toimi tässä ympäristössä,
+          // ja koko lähestymistapa on vaihdettava.
+          layout['text-field'] = ['format', ['image', 'city-pin'], {}];
+        } else {
+          layout['text-field'] = ['format',
+            nameExpr, { 'text-color': 'rgba(0,0,0,0)' },
+            '\n', {},
+            ['image', 'city-pin'], {}
+          ];
         }
         layout['text-line-height']      = CITY_PIN_LINE_HEIGHT;
 
         // Toinen rivi kasvattaa lohkoa → ankkuri on kompensoitava (ks. yllä).
         // text-offset on em-yksiköissä, samoin rivinkorkeus.
-        const _shift = cityPinAnchorShiftEm(layout['text-anchor'], CITY_PIN_LINE_HEIGHT);
+        const _shift = (CITY_PIN_DEBUG === 'imageonly')
+          ? 0   // yksirivinen → ei kompensointia
+          : cityPinAnchorShiftEm(layout['text-anchor'], CITY_PIN_LINE_HEIGHT);
         const _off   = layout['text-offset'];
         if (Array.isArray(_off) && _off.length === 2 &&
             typeof _off[0] === 'number' && typeof _off[1] === 'number') {
@@ -12007,9 +12013,7 @@
           source: L.source,
           'source-layer': L['source-layer'],
           layout,
-          paint: CITY_PIN_DEBUG
-            ? { 'text-opacity': 1, 'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.2 }
-            : { 'text-opacity': 1 }
+          paint: { 'text-opacity': 1 }
         };
         if (L.minzoom !== undefined) def.minzoom = L.minzoom;
         if (L.maxzoom !== undefined) def.maxzoom = L.maxzoom;
@@ -12021,13 +12025,15 @@
           def.filter = L.filter ? ['all', L.filter, mine] : mine;
           map.addLayer(def, labelsBeforeId());
           made++;
-          _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'], mode: 'kopioitu suodatin' });
+          _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'],
+                                labelId: lid, base: L.filter || null });
         } catch(e) {
           try {
             def.filter = mine;
             map.addLayer(def, labelsBeforeId());
             made++;
-            _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'], mode: 'oma suodatin' });
+            _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'],
+                                  labelId: lid, base: null });
           } catch(e2){ console.warn('city pin layer', myId, e2); }
         }
       });
@@ -12035,6 +12041,53 @@
       window.TP_CITYPIN_DIAG = 'nimitasoja ' + seen + ' · merkkitasoja ' + made +
         (seen && !made ? ' — EI LUOTU' : '');
     }
+
+    // ══ NÄKYVYYDEN SITOMINEN ═══════════════════════════════════════════
+    // Merkki näkyy VAIN niille kaupungeille joiden nimen kartta oikeasti
+    // juuri nyt piirtää — ja vain SIITÄ omasta tasosta joka vastaa sitä
+    // nimitasoa jolla nimi piirtyi. Tämä korjaa kaksi asiaa kerralla:
+    //   1) merkki ei enää ilmesty ennen nimeä (ei minzoom-arvausta)
+    //   2) sama kaupunki ei saa merkkiä useasta tasosta yhtä aikaa — juuri se
+    //      aiheutti äkilliset koon hypyt, koska eri nimitasoilla on eri
+    //      tekstikoko ja merkki peri sen
+    // Yksi kysely kartan asetuttua; ei kosketa sijaintiin millään tavalla.
+    let _cityVisTimer = null;
+    function bindCityPinVisibility(){
+      if (!_cityPinLayers.length) return;
+      const names = PARKING_CITIES.map(c => c[0]);
+      const nameSet = new Set(names);
+      const perLayer = new Map();
+      _cityPinLayers.forEach(r => perLayer.set(r.id, new Set()));
+
+      let feats = [];
+      try { feats = map.queryRenderedFeatures({ layers: cityLabelLayerIds() }); } catch(e){ return; }
+      feats.forEach(f => {
+        const nm = f.properties && f.properties.name;
+        if (!nm || !nameSet.has(nm)) return;
+        const lid = f.layer && f.layer.id;
+        const rec = _cityPinLayers.find(r => r.labelId === lid);
+        if (rec) perLayer.get(rec.id).add(nm);
+      });
+
+      _cityPinLayers.forEach(rec => {
+        if (!map.getLayer(rec.id)) return;
+        const arr = Array.from(perLayer.get(rec.id) || []);
+        const mine = arr.length
+          ? ['in', ['get', 'name'], ['literal', arr]]
+          : ['==', ['get', 'name'], '__tp_none__'];   // ei yhtään → piilota
+        try { map.setFilter(rec.id, rec.base ? ['all', rec.base, mine] : mine); } catch(e){}
+      });
+    }
+
+    (function bindCityPinEvents(){
+      const soon = () => {
+        clearTimeout(_cityVisTimer);
+        _cityVisTimer = setTimeout(() => { try { bindCityPinVisibility(); } catch(e){} }, 80);
+      };
+      map.on('idle', soon);
+      map.on('moveend', soon);
+      map.on('zoomend', soon);
+    })();
 
     // Laskee tilanteen VASTA kun sitä kysytään, nykyisestä näkymästä. Erottaa
     // kolme mahdollista vikaa toisistaan:
