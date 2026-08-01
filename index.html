@@ -5612,7 +5612,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-k';
+    const APP_BUILD   = '2026-08-01-l';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -11870,6 +11870,7 @@
     // KOEVERSION RAJAUS: vain merkin sijainti. Näkyvyyskysely (merkki katoaa
     // kun nimi katoaa) ja latausmerkki tulevat vasta jos sijainti osuu.
     const CITY_PIN_LINE_HEIGHT = 1.15;   // ← rako nimen ja merkin välissä (em)
+    let _cityPinLayers = [];             // { id, src, sl, mode } diagnostiikkaa varten
 
     // Asetukset jotka vaikuttavat siihen MIHIN symboli asettuu. Kaikki
     // kopioidaan sellaisenaan; puuttuvat jätetään pois jolloin Mapboxin oma
@@ -11907,6 +11908,7 @@
       const layers = map.getStyle().layers || [];
       const ids    = cityLabelLayerIds();
       seen = ids.length;
+      _cityPinLayers = [];
 
       ids.forEach((lid, i) => {
         const myId = 'tp-city-pin-' + i;
@@ -11937,8 +11939,8 @@
 
         layout['text-field'] = ['format',
           nameExpr, { 'text-color': 'rgba(0,0,0,0)' },   // näkymätön, varaa tilan
-          '\n',
-          ['image', 'city-pin']
+          '\n', {},
+          ['image', 'city-pin'], {}
         ];
         layout['text-line-height']      = CITY_PIN_LINE_HEIGHT;
         // Oma taso ei saa kilpailla tilasta taustakartan nimien kanssa eikä
@@ -11966,17 +11968,50 @@
           def.filter = L.filter ? ['all', L.filter, mine] : mine;
           map.addLayer(def, labelsBeforeId());
           made++;
+          _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'], mode: 'kopioitu suodatin' });
         } catch(e) {
           try {
             def.filter = mine;
             map.addLayer(def, labelsBeforeId());
             made++;
+            _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'], mode: 'oma suodatin' });
           } catch(e2){ console.warn('city pin layer', myId, e2); }
         }
       });
 
       window.TP_CITYPIN_DIAG = 'nimitasoja ' + seen + ' · merkkitasoja ' + made +
         (seen && !made ? ' — EI LUOTU' : '');
+    }
+
+    // Laskee tilanteen VASTA kun sitä kysytään, nykyisestä näkymästä. Erottaa
+    // kolme mahdollista vikaa toisistaan:
+    //   kuva puuttuu → 'kuva EI'
+    //   suodatin ei osu → 'lähteessä 0'
+    //   taso ei piirry → 'lähteessä >0' mutta 'piirtyy 0'
+    function cityPinDiag(){
+      const names = PARKING_CITIES.map(c => c[0]);
+      const mine  = ['in', ['get', 'name'], ['literal', names]];
+      let img = false;
+      try { img = !!map.hasImage('city-pin'); } catch(e){}
+      let rendered = 0, inSource = 0, slName = '–';
+      _cityPinLayers.forEach(rec => {
+        slName = rec.sl || '–';
+        try {
+          rendered += map.queryRenderedFeatures({ layers: [rec.id] }).length;
+        } catch(e){}
+        try {
+          inSource += map.querySourceFeatures(rec.src, { sourceLayer: rec.sl, filter: mine }).length;
+        } catch(e){}
+      });
+      let labelsNow = 0;
+      try { labelsNow = map.queryRenderedFeatures({ layers: cityLabelLayerIds() })
+        .filter(f => f.properties && names.indexOf(f.properties.name) >= 0).length; } catch(e){}
+      return 'kuva ' + (img ? 'ok' : 'EI') +
+             ' · tasoja ' + _cityPinLayers.length + ' (' + slName + ')' +
+             ' · lähteessä ' + inSource +
+             ' · piirtyy ' + rendered +
+             ' · nimiä näkyvissä ' + labelsNow +
+             ' · z' + map.getZoom().toFixed(1);
     }
 
     function reapplyMapLayers() {
@@ -13081,7 +13116,11 @@
       const _sd = document.getElementById('about-style');
       if (_sd) _sd.textContent = window.TP_STYLE_DIAG || '–';
       const _cp = document.getElementById('about-citypin');
-      if (_cp) _cp.textContent = window.TP_CITYPIN_DIAG || '–';
+      if (_cp) {
+        let _d = window.TP_CITYPIN_DIAG || '–';
+        try { _d = cityPinDiag(); } catch(e){ _d = 'diag-virhe: ' + (e && e.message); }
+        _cp.textContent = _d;
+      }
       const _me = document.getElementById('about-maperror');
       if (_me) _me.textContent = window.TP_LAST_MAP_ERROR || '–';
       document.getElementById('about-detail').classList.add('open');
