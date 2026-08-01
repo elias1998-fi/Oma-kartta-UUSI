@@ -5612,7 +5612,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-r';
+    const APP_BUILD   = '2026-08-01-s';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -11953,6 +11953,30 @@
       return out;
     }
 
+    // ⚠️ EPÄILY JOTA TÄMÄ TESTAA — ajoitus.
+    // `map.addImage()` rekisteröi kuvan pääsäikeeseen heti, mutta symbolien
+    // ASETTELU tehdään taustasäikeessä (worker). Jos taso lisätään samassa
+    // synkronisessa lohkossa kuin kuva, worker voi asetella symbolit ENNEN kuin
+    // kuva on ehtinyt sinne. `icon-image` toipuu tästä (Mapbox pyytää kuvan
+    // uudelleen), mutta TEKSTIN SISÄINEN kuva jää hiljaa pois — mikä vastaa
+    // täsmälleen havaintoa: ikoni piirtyy, tekstin sisäinen kuva ei koskaan.
+    //
+    // Korjaus: pakotetaan symbolien uudelleenasettelu kun kuva on varmasti
+    // perillä. `setLayoutProperty` merkitsee tason uudelleenaseteltavaksi;
+    // arvo asetetaan ensin tyhjäksi jotta muutos on varmasti todellinen.
+    let _cityRelayoutRuns = 0;
+    function forceCityPinRelayout(){
+        if (_cityRelayoutRuns >= 2) return;
+        _cityRelayoutRuns++;
+        _cityPinLayers.forEach(rec => {
+          if (!map.getLayer(rec.id) || !rec.tf) return;
+          try {
+            map.setLayoutProperty(rec.id, 'text-field', '');
+            map.setLayoutProperty(rec.id, 'text-field', rec.tf);
+          } catch(e){}
+        });
+    }
+
     function ensureCityPins(){
       let made = 0, seen = 0;
       try {
@@ -12052,20 +12076,29 @@
           map.addLayer(def, labelsBeforeId());
           made++;
           _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'],
-                                labelId: lid, base: L.filter || null });
+                                labelId: lid, base: L.filter || null,
+                                tf: layout['text-field'] });
         } catch(e) {
           try {
             def.filter = mine;
             map.addLayer(def, labelsBeforeId());
             made++;
             _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'],
-                                  labelId: lid, base: null });
+                                  labelId: lid, base: null,
+                                  tf: layout['text-field'] });
           } catch(e2){ console.warn('city pin layer', myId, e2); }
         }
       });
 
       window.TP_CITYPIN_DIAG = 'nimitasoja ' + seen + ' · merkkitasoja ' + made +
         (seen && !made ? ' — EI LUOTU' : '');
+
+      // Kaksi kierrosta: heti kun kartta on asettunut, ja varmuuden vuoksi
+      // vielä sekunnin päästä. Ajetaan enintään kaksi kertaa.
+      if (made) {
+        setTimeout(forceCityPinRelayout, 900);
+        map.once('idle', () => setTimeout(forceCityPinRelayout, 60));
+      }
     }
 
     // ══ NÄKYVYYDEN SITOMINEN ═══════════════════════════════════════════
@@ -12144,6 +12177,7 @@
         : 'ei puuttuvia';
       return 'kuva ' + (img ? 'ok' : 'EI') + ' · ' + miss +
              ' · sidonta ' + (CITY_PIN_BIND_VISIBILITY ? 'päällä' : 'pois') +
+             ' · uudelleenasettelu ' + _cityRelayoutRuns +
              ' · ankkuri ' + (_cityPinAnchorInfo || '–') +
              ' · tasoja ' + _cityPinLayers.length + ' (' + slName + ')' +
              ' · lähteessä ' + inSource +
