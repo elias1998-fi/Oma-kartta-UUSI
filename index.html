@@ -5612,7 +5612,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-s';
+    const APP_BUILD   = '2026-08-01-t';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -11881,7 +11881,11 @@
     //   ei mitään ollenkaan       → taso ei piirry vaikka kysely väittää muuta
     // '' = tuotanto · 'imageonly' = tekstikentässä VAIN kuva, ei nimeä
     // (ratkaiseva testi: piirtyykö tekstin sisäinen kuva ylipäätään)
-    const CITY_PIN_DEBUG = '';        // '' = kaksirivinen (nimi + merkki)
+    // VIIMEINEN PUHDAS TESTI: tekstikentässä VAIN kuva — ei nimeä, ei
+    // rivinvaihtoa, ei läpinäkyvää tekstiä. Sama koe ajettiin buildissa -p,
+    // mutta silloin mukana oli näkyvyyssidonta JA cityLabelLayerIds-bugi,
+    // joten tulos ei ollut luotettava. Nyt molemmat ovat pois.
+    const CITY_PIN_DEBUG = 'imageonly';
     // Näkyvyyssidonta pois tämän mittauksen ajaksi, jotta ruudulla on VAIN
     // yksi muuttuja. Palautetaan heti kun tiedetään piirtyykö merkki.
     const CITY_PIN_BIND_VISIBILITY = false;
