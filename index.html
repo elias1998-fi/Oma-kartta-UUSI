@@ -5608,7 +5608,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-a';
+    const APP_BUILD   = '2026-08-01-b';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5677,23 +5677,55 @@
     // Latauspisteen SVG on 128 px @pixelRatio 2 = 64 px natiivi.
     const CHARGING_ICON_SIZE = CHARGING_ICON_PX / 64;        // 0.234375
     // Hallin ikoni on 64 px kangas @pixelRatio 2 = 32 px natiivi.
-    const HALLI_ICON_SIZE     = 0.675;                       // 21,6 px, täysi koko
-    const HALLI_ICON_SIZE_MIN = CHARGING_ICON_PX / 32;       // 15,0 px = latauspisteen koko
-    // Halli kasvaa latauspisteen kokoisesta täyteen kokoonsa täsmälleen
-    // ristiinhäivytyksen aikana — sama zoom-väli kuin läpinäkyvyydellä.
+    const HALLI_ICON_PX = 21.6;                               // hallin täysi koko
+    // YKSI YHTEINEN KASVUKÄYRÄ. Kaupunkimerkki ja halli kasvavat täsmälleen
+    // samaa tahtia ristiinhäivytyksen aikana, joten ne ovat joka hetki yhtä
+    // suuria — myös häivytyksen puolivälissä. Ennen häivytystä molemmat ovat
+    // latauspisteen kokoisia.
+    function cityPinPxAt(z){
+      if (z <= CITY_FADE.start) return CHARGING_ICON_PX;
+      if (z >= CITY_FADE.end)   return HALLI_ICON_PX;
+      const t = (z - CITY_FADE.start) / (CITY_FADE.end - CITY_FADE.start);
+      return CHARGING_ICON_PX + t * (HALLI_ICON_PX - CHARGING_ICON_PX);
+    }
+    // Halli: 64 px kangas @pixelRatio 2 = 32 px natiivi.
     function halliSizeExpr(){
       return ['interpolate',['linear'],['zoom'],
-              CITY_FADE.start, HALLI_ICON_SIZE_MIN,
-              CITY_FADE.end,   HALLI_ICON_SIZE];
+              CITY_FADE.start, CHARGING_ICON_PX / 32,
+              CITY_FADE.end,   HALLI_ICON_PX     / 32];
     }
-    // Kaupunkimerkin SININEN NELIÖ on yhtä suuri kuin latauspisteen ikoni.
-    // Kangas on 76 px (64 + 6 px valkoista kehystä joka reunalla) @pixelRatio 2
-    // = 38 px natiivi, mutta kerroin lasketaan sinisen osan (32 px) mukaan.
-    const CITY_PIN_SIZE = CHARGING_ICON_PX / 32;             // 0.46875
-    // Merkki lasketaan nimen ALAPUOLELLE: icon-anchor 'top' vie ikonin
-    // yläreunan ankkuripisteeseen, ja tämä siirtää sitä alaspäin ruutu-
-    // pikseleinä (icon-translate ei skaalaudu icon-sizen mukana).
-    const CITY_PIN_DY = 14;
+    // Kaupunkimerkki: kangas 76 px (64 + 6 px valkoista kehystä joka reunalla)
+    // = 38 px natiivi, mutta kerroin lasketaan SINISEN osan (32 px) mukaan,
+    // jotta sininen neliö on tasan hallin ikonin kokoinen.
+    function cityPinSizeExpr(){ return halliSizeExpr(); }
+    // Latauspistemerkki kaupungin kohdalla: kangas 152 px (128 + 12 px kehys)
+    // = 76 px natiivi, värillinen osa 64 px → oma jakaja.
+    function cityEvSizeExpr(){
+      return ['interpolate',['linear'],['zoom'],
+              CITY_FADE.start, CHARGING_ICON_PX / 64,
+              CITY_FADE.end,   HALLI_ICON_PX     / 64];
+    }
+
+    // ── Merkin sijainti kaupungin nimen alla ────────────────────────────
+    // Pystysuunta: taustakartan paikannimen KOKO KASVAA zoomatessa, joten
+    // kiinteä siirto jättäisi kaukana ison ja lähellä pienen raon. Siirto on
+    // siksi zoom-riippuvainen ja kalibroitu niin, että rako vastaa zoom-tason
+    // 10 tilannetta kaikilla zoomeilla. Arvot ovat ARVIO Mapboxin
+    // settlement-label-tekstikoon rampista — säädä jos rako heittää.
+    const CITY_DY_STOPS = [[3, 10.5], [6, 12.0], [8, 13.0], [10, 14.0], [11.5, 14.7]];
+    // Vaakasuunta: kun kaupungissa on sekä pysäköintiä että latausta, merkit
+    // asetetaan vierekkäin nimen alle keskitetysti. Puolikas leveys + rako,
+    // ja koska merkki kasvaa häivytyksen aikana, myös tämä kasvaa mukana.
+    const CITY_PIN_GAP = 2;
+    function cityTranslate(side){          // side: -1 vasen, 0 keskellä, +1 oikea
+      const out = ['interpolate', ['linear'], ['zoom']];
+      CITY_DY_STOPS.forEach(([z, dy]) => {
+        const w  = cityPinPxAt(z) * 76 / 64;      // koko merkki kehyksineen
+        const dx = side * (w + CITY_PIN_GAP) / 2;
+        out.push(z, ['literal', [Math.round(dx * 10) / 10, dy]]);
+      });
+      return out;
+    }
 
     // Häipyy NÄKYVIIN zoomatessa (pysäköintikohteet).
     function fadeInExpr(){
@@ -5710,7 +5742,8 @@
     // TÄYDENNÄ TÄTÄ LISTAA kun uusia kaupunkeja tulee mukaan.
     const PARKING_CITIES = [
       // ── tier 1 ──────────────────────────────────────────────────────
-      ['Helsinki',      24.9384, 60.1699, 1],
+      // 5. kenttä (true) = kaupungissa on myös sähköautojen latausta
+      ['Helsinki',      24.9384, 60.1699, 1, true],
       ['Tampere',       23.7610, 61.4978, 1],
       ['Turku',         22.2666, 60.4518, 1],
       ['Oulu',          25.4651, 65.0121, 1],
@@ -10219,7 +10252,11 @@
         layout: {
           'icon-image': 'halli-icon',   // aina varsinainen ikoni, ei kuutiota kaukaa
           'icon-size': halliSizeExpr(),   // latauspisteen koosta täyteen kokoon häivytyksen aikana
-          'icon-allow-overlap': true, 'icon-anchor': 'center'
+          // icon-ignore-placement PAKOLLINEN: ilman sitä halli-ikonit osallistuvat
+          // taustakartan tormayslaskentaan ja tyontavat paikannimia pois. Helsingin
+          // nimi katosi kokonaan, koska hallit ovat siella tiheimmassa. HUOM:
+          // icon-opacity 0 EI poista symbolia tormayslaskennasta.
+          'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
         },
         paint: { 'icon-opacity': fadeInExpr() }
       });
@@ -11814,6 +11851,17 @@
         if (!map.hasImage('city-pin')) {
           map.addImage('city-pin', createCityPinCanvas(), { pixelRatio: 2 });
         }
+        // Latausmerkki ladataan kuvana (SVG) — asynkroninen, joten taso
+        // lisätään vasta onloadissa.
+        if (!map.hasImage('city-ev-pin')) {
+          const evImg = new Image(152, 152);
+          evImg.onload = () => {
+            if (!map.hasImage('city-ev-pin')) map.addImage('city-ev-pin', evImg, { pixelRatio: 2 });
+            addCityPinLayers();
+          };
+          evImg.onerror = addCityPinLayers;
+          evImg.src = cityEvPinSvg();
+        }
         if (!map.getSource('tp-city-pins')) {
           map.addSource('tp-city-pins', {
             type: 'geojson',
@@ -11821,33 +11869,52 @@
               type: 'FeatureCollection',
               features: PARKING_CITIES.map(c => ({
                 type: 'Feature',
-                properties: { name: c[0], tier: c[3] },
+                properties: { name: c[0], tier: c[3], ev: !!c[4] },
                 geometry: { type: 'Point', coordinates: [c[1], c[2]] }
               }))
             }
           });
         }
-        [[1, 'tp-city-pins-1', 0], [2, 'tp-city-pins-2', 7]].forEach(([tier, id, minz]) => {
+        addCityPinLayers();
+      } catch(e) { console.error('city pins', e); }
+    }
+
+    // Kolme tasoa per porras:
+    //   p     — pelkkä P-merkki, keskitetty nimen alle
+    //   pe    — P-merkki kun kaupungissa on myös latausta → siirretty vasemmalle
+    //   ev    — latausmerkki, siirretty oikealle
+    // Näin pari on keskitetty nimen alle ja yksinäinen merkki keskellä.
+    function addCityPinLayers() {
+      if (!map.getSource('tp-city-pins')) return;
+      const common = {
+        'icon-allow-overlap': true,
+        // Ei saa tyontaa taustakartan paikannimia pois (ks. halli-icons).
+        'icon-ignore-placement': true,
+        'icon-anchor': 'top'
+      };
+      [[1, 0], [2, 7]].forEach(([tier, minz]) => {
+        const t = ['==', ['get', 'tier'], tier];
+        const defs = [
+          ['tp-city-p-'  + tier, 'city-pin',    cityPinSizeExpr(), ['all', t, ['!', ['get','ev']]],  0],
+          ['tp-city-pe-' + tier, 'city-pin',    cityPinSizeExpr(), ['all', t, ['get','ev']],        -1],
+          ['tp-city-ev-' + tier, 'city-ev-pin', cityEvSizeExpr(),  ['all', t, ['get','ev']],        +1]
+        ];
+        defs.forEach(([id, image, sizeExpr, filter, side]) => {
           if (map.getLayer(id)) return;
+          if (!map.hasImage(image)) return;      // kuva ei vielä ladattu
           map.addLayer({
             id, type: 'symbol', source: 'tp-city-pins', minzoom: minz,
-            maxzoom: CITY_FADE.end + 0.01,   // taso sammuu kun häivytys on valmis
-            filter: ['==', ['get', 'tier'], tier],
-            layout: {
-              'icon-image': 'city-pin',
-              'icon-size': CITY_PIN_SIZE,
-              'icon-allow-overlap': true,
-              'icon-ignore-placement': true,
-              'icon-anchor': 'top'
-            },
+            maxzoom: CITY_FADE.end + 0.01,       // taso sammuu kun häivytys on valmis
+            filter,
+            layout: Object.assign({ 'icon-image': image, 'icon-size': sizeExpr }, common),
             paint: {
               'icon-opacity': fadeOutExpr(),
-              'icon-translate': [0, CITY_PIN_DY],
+              'icon-translate': cityTranslate(side),
               'icon-translate-anchor': 'viewport'
             }
           });
         });
-      } catch(e) { console.error('city pins', e); }
+      });
     }
 
     function reapplyMapLayers() {
@@ -11857,7 +11924,7 @@
       // shows. Removing first guarantees a fresh re-add in BOTH directions.
       ['master-poly-fill','master-poly-line','master-poly-hover-fill','master-poly-hover-line','master-poly-group-line','master-poly-group-fill','halli-icons','charging-icons']
         .forEach(id => { if (map.getLayer(id)) { try { map.removeLayer(id); } catch(e){} } });
-      ['tp-city-pins-1','tp-city-pins-2']
+      ['tp-city-p-1','tp-city-pe-1','tp-city-ev-1','tp-city-p-2','tp-city-pe-2','tp-city-ev-2']
         .forEach(id => { if (map.getLayer(id)) { try { map.removeLayer(id); } catch(e){} } });
       ['master-polygons','halli-points','charging-points','tp-city-pins']
         .forEach(id => { if (map.getSource(id)) { try { map.removeSource(id); } catch(e){} } });
@@ -13586,6 +13653,21 @@
         '<rect x="0" y="0" width="128" height="128" rx="26" fill="' + bg + '"/>' +
         '<path fill="#ffffff" fill-rule="evenodd" d="M25.51 107.9C24.25 106.86 24.47 104.66 25.9 104.08C26.43 103.87 35.57 103.77 60.45 103.71C94.1 103.62 94.3 103.62 97.19 103.06C114.76 99.7 120.35 89.61 110.52 79.03C108.46 76.81 106.28 75.01 102.2 72.15L99.22 70.06L98.25 71.09C97.51 71.86 97.08 72.11 96.47 72.11C95.67 72.11 91.11 70 91.11 69.63C91.11 69.19 98.4 58.81 98.71 58.81C98.83 58.81 99.78 59.62 100.82 60.61C103.24 62.92 103.47 63.83 102.13 65.68C101.74 66.21 101.81 66.28 104.59 68.2C106.17 69.28 108.48 70.99 109.74 72C128.16 86.77 120.73 104.95 95.04 107.96C89.68 108.59 26.28 108.53 25.51 107.9ZM43.57 93.77C44.06 92.08 47.53 79.65 47.67 79.11L47.83 78.46L44.13 78.39L40.43 78.32L49.91 68.85L59.38 59.37L57.18 67.2L54.98 75.02L58.6 75.09C60.59 75.13 62.23 75.25 62.23 75.35C62.23 75.45 58 79.75 52.83 84.91C47.66 90.06 43.49 94.05 43.57 93.77ZM83.36 69.1C81.36 67.79 80.34 66.66 78.33 63.53C77.41 62.09 76.11 60.38 75.46 59.73C73.98 58.25 56.79 46.18 54.88 45.28C52.57 44.18 49.85 44.32 46.9 45.68C43.59 47.21 43.18 47.26 34.48 47.27C23.35 47.28 24.42 48.84 24.52 32.68L24.6 21.13L25.42 20.4L26.25 19.66L35.18 19.66C50.31 19.66 49.36 19.31 66.79 31.54C71.46 34.82 77.5 39.05 80.22 40.94C98.11 53.42 97.45 52.88 97.45 54.86C97.45 55.72 96.87 56.67 92.72 62.59C86.91 70.89 86.51 71.17 83.36 69.1ZM9.35 44.25C8 43.43 8 43.43 8 33.47C8 21.13 7.25 22.19 15.99 22.19L21.94 22.19L21.94 33.47L21.94 44.74L16.05 44.74C10.66 44.74 10.08 44.7 9.35 44.25Z"/>' +
         '<rect x="-3" y="-3" width="134" height="134" rx="30" fill="none" stroke="#ff1744" stroke-width="18"/>' +
+        '</svg>'
+      );
+    }
+    // Kaupungin kohdalla nimen alla näytettävä latausmerkki: sama ikoni kuin
+    // kartan latauspisteillä, mutta valkoinen kehys ympärillä (kuten P-merkki).
+    // viewBox laajennettu 12 px joka suuntaan → 152 px, sama suhde kuin
+    // P-merkin 6 px / 64 px.
+    function cityEvPinSvg(){
+      const core = chargingIconSvg('#008151');
+      const inner = atob(core.split(',')[1])
+        .replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
+      return 'data:image/svg+xml;base64,' + btoa(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -12 152 152" width="152" height="152">' +
+        '<rect x="-12" y="-12" width="152" height="152" rx="38" fill="#ffffff"/>' +
+        inner +
         '</svg>'
       );
     }
