@@ -35,6 +35,23 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #f0f1f2; height: -webkit-fill-available; }
     #map { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; }
+    /* Zoom-taso vasemmassa alareunassa. z-index alle sheetin (20), joten se
+       jää sheetin alle kun sheet on auki. pointer-events:none → ei häiritse
+       kartan käyttöä. */
+    #zoom-indicator {
+      position: fixed;
+      left: 12px;
+      bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      z-index: 15;
+      pointer-events: none;
+      background: rgba(255,255,255,0.9);
+      color: #0C0243;
+      font: 500 13px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 6px 9px;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+      font-variant-numeric: tabular-nums;
+    }
     /* Varmuuden vuoksi: jos kartta jostain syystä ei peitä reunaa, taustalla
        on kartan oma sävy eikä vaalean harmaa. */
     html, body { background: #e8e6e1; }
@@ -3679,6 +3696,8 @@
 <body>
   <!-- Splash Screen -->
   <div id="map"></div>
+  <!-- Zoom-tason indikaattori vasemmassa alareunassa (kehitystyökalu). -->
+  <div id="zoom-indicator">z–</div>
 
   <!-- Unified center marker — morphs between standalone P pin and full badge -->
   <div id="center-marker">
@@ -5612,7 +5631,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-w';
+    const APP_BUILD   = '2026-08-01-x';   // zoom-indikaattori vasemmalla alhaalla
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5700,16 +5719,14 @@
     // zoomataan lähemmäs, merkit häipyvät ja tilalle häipyvät varsinaiset
     // pysäköintialueet, hallit ja latauspisteet.
     // Yksi häivytyksen kesto kaikille: pienempi luku = nopeampi vaihto.
-    const FADE_SPAN = 0.8;
+    const FADE_SPAN = 0.2;
     const fadeRange = (start) => ({ start, end: start + FADE_SPAN });
 
     // Kaupunkien P-merkit häipyvät POIS ja pysäköintihallit ESIIN samalla
-    // välillä zoomista 8 alkaen — ristiinhäivytys.
-    const CITY_FADE     = fadeRange(8);    // P-merkit ulos + hallit sisään
-    // Latauspisteet tulevat vasta myöhemmin, samalla nopeudella.
-    const CHARGING_FADE = fadeRange(10);
-    // Pysäköintialueiden polygonit (ennallaan zoomilla 10, nopeampi vaihto).
-    const AREA_FADE     = fadeRange(10);
+    // välillä zoomista 12 alkaen — ristiinhäivytys.
+    const CITY_FADE     = fadeRange(12);     // P-merkit ulos + hallit sisään
+    const CHARGING_FADE = fadeRange(12.5);   // latauspisteet
+    const AREA_FADE     = fadeRange(13);     // pysäköintialueiden polygonit
 
     // ── Ikonien koot ────────────────────────────────────────────────
     // Yksi lähtöluku: latauspisteen halkaisija ruudulla. 12,0 px + 25 %.
@@ -5721,7 +5738,7 @@
     // Halli alkaa PUOLIKKAANA zoomilla 8 ja kasvaa tasaisesti täyteen kokoonsa
     // zoomiin HALLI_GROW_END mennessä. Kasvu on erillään häivytyksestä, joten
     // sitä voi säätää ilman että vaihdon nopeus muuttuu.
-    const HALLI_GROW_END = 13;
+    const HALLI_GROW_END = 15;
     function halliSizeExpr(){
       return ['interpolate',['linear'],['zoom'],
               CITY_FADE.start, HALLI_ICON_PX / 2 / 32,
@@ -11903,6 +11920,11 @@
     // `text-size`-lausekkeesta, joten molemmat skaalautuvat nimen mukana
     // itsestään — myös silloin kun tekstikoko kasvaa zoomatessa.
     const CITY_PIN_REL     = 1.00;   // ← merkin korkeus / nimen tekstikoko
+    // Merkin koko on VAKIO, ei tekstikoon mukana muuttuva. Kokona käytetään
+    // sitä kokoa jonka merkki saisi tällä zoomilla — käyttäjä valitsi zoomin 7,
+    // koska siellä nimen fontti muuttuu lihavaksi ja merkki hyppäsi ennen
+    // isommaksi. Vakiokoko poistaa sen keikahduksen kokonaan.
+    const CITY_PIN_REF_ZOOM = 7;
     const CITY_PIN_GAP_REL = 0.20;   // ← rako nimen alareunasta, samassa suhteessa
     const CITY_PIN_NATIVE  = 38;     // 76 px kangas @pixelRatio 2
 
@@ -11915,6 +11937,50 @@
       if (a.indexOf('bottom') === 0) return 0.00;   // täsmällinen
       if (a.indexOf('top') === 0)    return 0.72;
       return 0.36;                                   // center — arvio
+    }
+
+    // Laskee lausekkeen arvon annetulla zoomilla. Tukee samaa osajoukkoa kuin
+    // scaleExprNumbers. Feature-riippuvaisista haaroista (esim. symbolrank)
+    // otetaan ENSIMMÄINEN ulostulo, joka Mapboxin nimitasoilla vastaa
+    // tärkeintä eli suurinta kokoa — juuri sitä mitä merkin vakiokooksi
+    // halutaan. Palauttaa null jos rakennetta ei tunnisteta.
+    function evalExprAtZoom(expr, z){
+      if (typeof expr === 'number') return expr;
+      if (!Array.isArray(expr)) return null;
+      const op = expr[0];
+      const isZoomInput = (e) => Array.isArray(e) && e[0] === 'zoom';
+      if (op === 'interpolate' || op === 'interpolate-hcl' || op === 'interpolate-lab') {
+        if (!isZoomInput(expr[2])) return evalExprAtZoom(expr[4], z);
+        const stops = [];
+        for (let i = 3; i + 1 < expr.length; i += 2) {
+          const v = evalExprAtZoom(expr[i + 1], z);
+          if (v === null) return null;
+          stops.push([expr[i], v]);
+        }
+        if (!stops.length) return null;
+        if (z <= stops[0][0]) return stops[0][1];
+        if (z >= stops[stops.length - 1][0]) return stops[stops.length - 1][1];
+        for (let i = 0; i + 1 < stops.length; i++) {
+          const [z0, v0] = stops[i], [z1, v1] = stops[i + 1];
+          if (z >= z0 && z <= z1) {
+            const t = (z1 === z0) ? 0 : (z - z0) / (z1 - z0);
+            return v0 + t * (v1 - v0);
+          }
+        }
+        return stops[0][1];
+      }
+      if (op === 'step') {
+        if (!isZoomInput(expr[1])) return evalExprAtZoom(expr[2], z);
+        let val = evalExprAtZoom(expr[2], z);
+        for (let i = 3; i + 1 < expr.length; i += 2) {
+          if (z >= expr[i]) val = evalExprAtZoom(expr[i + 1], z);
+        }
+        return val;
+      }
+      if (op === 'match') return evalExprAtZoom(expr[3], z);
+      if (op === 'case')  return evalExprAtZoom(expr[2], z);
+      if (op === 'literal' && typeof expr[1] === 'number') return expr[1];
+      return null;
     }
 
     // Kertoo lausekkeen numeeriset ULOSTULOT vakiolla koskematta syötteisiin
@@ -12085,26 +12151,34 @@
         const tOff  = rd('text-offset');
         const offY  = (Array.isArray(tOff) && typeof tOff[1] === 'number') ? tOff[1] : 0;
 
-        // Merkin korkeus = CITY_PIN_REL × nimen tekstikoko.
-        let iconSize = scaleExprNumbers(tSize, CITY_PIN_REL / CITY_PIN_NATIVE);
-        let sizeMode = 'skaalattu';
-        if (iconSize === null) {
-          iconSize = CITY_PIN_REL * 15 / CITY_PIN_NATIVE;   // varasuunnitelma
-          sizeMode = 'VAKIO';
-        }
+        // MERKIN KOKO ON VAKIO: lasketaan mikä nimen tekstikoko on
+        // viitezoomilla ja lukitaan merkki siihen. Näin merkki ei enää
+        // keikahda isommaksi kun fontti vaihtuu lihavaksi.
+        let refText = evalExprAtZoom(tSize, CITY_PIN_REF_ZOOM);
+        let sizeMode = 'vakio@z' + CITY_PIN_REF_ZOOM;
+        if (refText === null || !(refText > 0)) { refText = 16; sizeMode = 'OLETUS16'; }
+        const pinPx   = CITY_PIN_REL * refText;
+        const iconSize = pinPx / CITY_PIN_NATIVE;
 
-        // icon-offset on pikseleitä KERROTTUNA icon-sizella. Koska icon-size on
-        // verrannollinen tekstikokoon, myös siirto skaalautuu nimen mukana
-        // vaikka luku itsessään on vakio. Tämä ratkaisee zoomin aikana
-        // tapahtuvan tekstikoon kasvun ilman erillistä logiikkaa.
+        // RAKO seuraa silti nimen kokoa. icon-offset on pikseleitä KERROTTUNA
+        // icon-sizella, ja koska icon-size on nyt vakio, siirto rakennetaan
+        // zoom-interpolaationa nimen tekstikoosta. Näin merkin koko pysyy
+        // samana mutta se pysyy oikealla etäisyydellä nimestä kun teksti kasvaa.
         const dropRel = offY + cityNameBottomRel(anchor) + CITY_PIN_GAP_REL;
-        const offsetY = dropRel * CITY_PIN_NATIVE / CITY_PIN_REL;
+        const offAt = (z) => {
+          const t = evalExprAtZoom(tSize, z);
+          const px = dropRel * ((t === null || !(t > 0)) ? refText : t);
+          return Math.round(px / iconSize * 100) / 100;
+        };
+        const OFF_STOPS = [0, 4, 6, 7, 8, 10, 12, 14];
+        const offsetExpr = ['interpolate', ['linear'], ['zoom']];
+        OFF_STOPS.forEach(z => offsetExpr.push(z, ['literal', [0, offAt(z)]]));
 
         const layout = {
           'icon-image': 'city-pin',
-          'icon-size': iconSize,
+          'icon-size': Math.round(iconSize * 10000) / 10000,
           'icon-anchor': 'top',
-          'icon-offset': [0, Math.round(offsetY * 100) / 100],
+          'icon-offset': offsetExpr,
           // Ei saa kilpailla tilasta taustakartan nimien kanssa.
           'icon-allow-overlap': true,
           'icon-ignore-placement': true
@@ -12120,7 +12194,8 @@
             'ankkuri ' + (anchorConst ? anchor : 'LAUSEKE') +
             (hasVarAnchor ? '(vaihtuva!)' : '') +
             ' · piste ' + (dotImg ? 'ON' : 'ei') +
-            ' · ' + sizeMode + ' drop' + dropRel.toFixed(2);
+            ' · merkki ' + pinPx.toFixed(1) + 'px ' + sizeMode +
+            ' · drop' + dropRel.toFixed(2);
         }
 
         const mine = ['in', ['get', 'name'], ['literal', names]];
@@ -12198,14 +12273,39 @@
       });
     }
 
+    (function bindZoomIndicator(){
+      const el = document.getElementById('zoom-indicator');
+      if (!el) return;
+      const upd = () => { el.textContent = 'z' + map.getZoom().toFixed(2); };
+      map.on('zoom', upd);
+      map.on('move', upd);
+      map.on('load', upd);
+      upd();
+    })();
+
     (function bindCityPinEvents(){
-      const soon = () => {
-        clearTimeout(_cityVisTimer);
-        _cityVisTimer = setTimeout(() => { try { bindCityPinVisibility(); } catch(e){} }, 80);
+      // Näkyvyys päivittyy KESKEN liikkeen, ei vasta sormen nostettua.
+      // Kysely on kohtalaisen raskas, joten se ajetaan enintään
+      // CITY_VIS_MIN_MS välein ja aina ruudunpiirron tahdissa.
+      const CITY_VIS_MIN_MS = 90;
+      let last = 0, pending = false;
+      const run = () => {
+        pending = false;
+        last = performance.now();
+        try { bindCityPinVisibility(); } catch(e){}
       };
-      map.on('idle', soon);
-      map.on('moveend', soon);
-      map.on('zoomend', soon);
+      const tick = () => {
+        if (pending) return;
+        const wait = CITY_VIS_MIN_MS - (performance.now() - last);
+        pending = true;
+        if (wait <= 0) requestAnimationFrame(run);
+        else setTimeout(() => requestAnimationFrame(run), wait);
+      };
+      map.on('move', tick);      // kattaa myös zoomauksen kesken eleen
+      map.on('zoom', tick);
+      map.on('idle', tick);
+      map.on('moveend', tick);
+      map.on('zoomend', tick);
     })();
 
     // Laskee tilanteen VASTA kun sitä kysytään, nykyisestä näkymästä. Erottaa
