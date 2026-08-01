@@ -5642,7 +5642,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-02-l';
+    const APP_BUILD   = '2026-08-02-m';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5757,12 +5757,21 @@
     // Hallin ikoni on 64 px kangas @pixelRatio 2 = 32 px natiivi.
     const HALLI_ICON_PX = 21.6;                               // hallin täysi koko
     // ══ HALLIEN JA LATAUSPISTEIDEN YHTEINEN KOKO ═══════════════════════
-    // VAKIOKOKO joka zoomilla — ei enää kasvua häivytyksen aikana. Molemmat
-    // ovat aina saman kokoisia. Yksi luku ohjaa molempia:
-    const POI_ICON_PX = 21.6;               // ← hallin JA latauspisteen koko
+    // Molemmat ovat aina keskenään saman kokoisia. Ilmestyessään ne ovat
+    // POI_START_SCALE-verran pienempiä ja kasvavat EKSPONENTIAALISESTI
+    // täyteen kokoonsa POI_GROW_END:iin mennessä.
+    const POI_ICON_PX    = 21.6;   // ← täysi koko (zoomilla POI_GROW_END)
+    const POI_START_SCALE = 0.75;  // ← 25 % pienempi kun ikonit ilmestyvät
+    const POI_GROW_END    = 15;    // ← mihin zoomiin mennessä täysi koko
+    // Kanta > 1 → kasvu on aluksi hidasta ja kiihtyy loppua kohti.
+    const POI_GROW_BASE   = 2;
     // nativePx = ikonin natiivikoko (kangas @pixelRatio 2 puolitettuna):
     //   halli 64 px kangas → 32 · latauspiste 128 px SVG → 64
-    function poiSizeExpr(nativePx){ return POI_ICON_PX / nativePx; }
+    function poiSizeExpr(nativePx){
+      return ['interpolate', ['exponential', POI_GROW_BASE], ['zoom'],
+              CITY_FADE.start, POI_ICON_PX * POI_START_SCALE / nativePx,
+              POI_GROW_END,    POI_ICON_PX                   / nativePx];
+    }
     function halliSizeExpr(){ return poiSizeExpr(32); }
     function chargingSizeExpr(){ return poiSizeExpr(64); }
 
@@ -6260,6 +6269,9 @@
       try { applyMapLanguage(currentAppLang()); } catch(e){}
       // setStyle pudottaa omat tasot ja kuvat → luodaan Suomi-merkki uudelleen.
       try { ensureFinlandPin(); } catch(e){}
+      // Tasot syntyvät eri aikaan (halli heti, latauspiste vasta kun se on
+      // kytketty päälle), joten järjestys varmistetaan myös kartan asetuttua.
+      map.once('idle', () => { try { orderPoiLayers(); } catch(e){} });
       // setStyle pudottaa omat tasot ja kuvat → luodaan uudelleen.
       let lc = 0;
       try { lc = (map.getStyle().layers || []).length; } catch(e){}
@@ -11991,6 +12003,18 @@
     //    and layers, so once the new style has loaded we re-add them from cached
     //    data (parking polygons, halli icons, charging icons). Everything else in
     //    the app is unaffected. ──
+    // ══ IKONIEN PIIRTOJÄRJESTYS ════════════════════════════════════════
+    // Hallit aina latauspisteiden PÄÄLLE, ja molemmat aina taustakartan
+    // nimien ALLE. `moveLayer(id, beforeId)` siirtää tason juuri ennen
+    // nimitasoja, joten VIIMEKSI siirretty jää päällimmäiseksi → kutsutaan
+    // alhaalta ylös. Törmäystä ei ole: kaikilla neljällä tasolla on
+    // `icon-allow-overlap` + `icon-ignore-placement`, joten ne eivät väistä
+    // toisiaan eivätkä voi piilottaa toisiaan — vain piirtojärjestys ratkaisee.
+    function orderPoiLayers(){
+      ['charging-icons', 'charging-hi-icon', 'halli-icons', 'halli-hi-icon']
+        .forEach(id => moveBelowLabels(id));
+    }
+
     // ══ ZOOM-TASON INDIKAATTORI (vasen alareuna) ═══════════════════════
     // ⚠️ Tämä oli aiemmin kaupunkimerkkien koodilohkon sisällä, ja kun se
     // lohko poistettiin buildissa -j, indikaattorin päivitys lähti mukana —
@@ -12186,6 +12210,7 @@
       // Charging icons — addChargingLayer() re-registers its own images.
       try { if (typeof showEvCharging !== 'undefined' && showEvCharging) addChargingLayer(); } catch(e){ console.error('reapply charging', e); }
       try { ensureFinlandPin(); } catch(e){}
+      try { orderPoiLayers(); } catch(e){}
     }
     // Map style section: header toggles the collapsible list of style options
     function toggleMapStyleRow() {
@@ -14089,6 +14114,8 @@
             if (!_chargingHandlersBound) {
               _chargingHandlersBound = true;
               map.on('mouseenter', 'charging-icons', () => { map.getCanvas().style.cursor = 'pointer'; });
+            // Halli piirtyy latauspisteen päälle — järjestys varmistetaan heti.
+            try { orderPoiLayers(); } catch(e){}
               map.on('mouseleave', 'charging-icons', () => { map.getCanvas().style.cursor = ''; });
               map.on('click', 'charging-icons', (e) => {
                 const ft = e.features && e.features[0];
@@ -14437,6 +14464,7 @@
     }
     // Re-filter the loaded charging stations by the EV controls and push the
     // result to the map source. No-op until the data + layer exist.
+    let _chargingDataKey = null;   // viimeksi kirjoitettu sisältö (ks. alla)
     function applyChargingFilters(){
       if(!map.getSource('charging-points')) return;
       const types = _selectedChargerTypes;
@@ -14473,7 +14501,20 @@
           return true;
         });
       }
-      map.getSource('charging-points').setData({ type:'FeatureCollection', features: feats });
+      // ⚠️ VILKKUMISEN SYY: tämä ajetaan myös tilapäivityksen ajastimesta
+      // (refreshChargingStatuses). Jokainen setData tiiliöi lähteen uusiksi ja
+      // symbolit häipyvät ulos ja takaisin sisään `fadeDuration`in verran →
+      // ikonit näyttivät vilkkuvan. Kirjoitetaan siis vain kun sisältö
+      // OIKEASTI muuttui. Avaimeen riittää id + saatavuus + koordinaatit.
+      const _key = feats.map(f => {
+        const pr = f.properties || {}, c = (f.geometry && f.geometry.coordinates) || [];
+        return (pr.id != null ? pr.id : (pr.uuid || pr.operatorName || '')) + ':' +
+               (pr.available ? 1 : 0) + ':' + c[0] + ',' + c[1];
+      }).join('|');
+      if (_key !== _chargingDataKey) {
+        _chargingDataKey = _key;
+        map.getSource('charging-points').setData({ type:'FeatureCollection', features: feats });
+      }
       updateResetBtnVisibility();
     }
     // Show a charging station's details in the bottom sheet — same presentation
