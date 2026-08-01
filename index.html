@@ -5642,7 +5642,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-02-k';
+    const APP_BUILD   = '2026-08-02-l';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5741,8 +5741,8 @@
     // Suomi-merkki häipyy POIS ja hallit + latauspisteet häipyvät ESIIN
     // samalla välillä zoomista 10 alkaen — ristiinhäivytys.
     const COUNTRY_FADE  = fadeRange(10);     // "Suomi"-tekstin alla oleva P-merkki
-    const CITY_FADE     = fadeRange(10);     // hallit sisään (fadeInExpr-oletus)
-    const CHARGING_FADE = fadeRange(10);     // latauspisteet sisään, sama hetki
+    const CITY_FADE     = fadeRange(7);      // hallit sisään (fadeInExpr-oletus)
+    const CHARGING_FADE = fadeRange(7);      // latauspisteet sisään, sama hetki
     const AREA_FADE     = fadeRange(13);     // pysäköintialueiden polygonit (ennallaan)
 
     // ── Ikonien koot ────────────────────────────────────────────────
@@ -5759,7 +5759,7 @@
     // ══ HALLIEN JA LATAUSPISTEIDEN YHTEINEN KOKO ═══════════════════════
     // VAKIOKOKO joka zoomilla — ei enää kasvua häivytyksen aikana. Molemmat
     // ovat aina saman kokoisia. Yksi luku ohjaa molempia:
-    const POI_ICON_PX = 24;                 // ← hallin JA latauspisteen koko
+    const POI_ICON_PX = 21.6;               // ← hallin JA latauspisteen koko
     // nativePx = ikonin natiivikoko (kangas @pixelRatio 2 puolitettuna):
     //   halli 64 px kangas → 32 · latauspiste 128 px SVG → 64
     function poiSizeExpr(nativePx){ return POI_ICON_PX / nativePx; }
@@ -11991,6 +11991,21 @@
     //    and layers, so once the new style has loaded we re-add them from cached
     //    data (parking polygons, halli icons, charging icons). Everything else in
     //    the app is unaffected. ──
+    // ══ ZOOM-TASON INDIKAATTORI (vasen alareuna) ═══════════════════════
+    // ⚠️ Tämä oli aiemmin kaupunkimerkkien koodilohkon sisällä, ja kun se
+    // lohko poistettiin buildissa -j, indikaattorin päivitys lähti mukana —
+    // elementti jäi näkyviin mutta jumiin alkuarvoonsa. Nyt se on omanaan
+    // eikä voi enää lähteä toisen ominaisuuden mukana.
+    (function bindZoomIndicator(){
+      const el = document.getElementById('tp-zoomlevel');
+      if (!el) return;
+      const upd = () => { el.textContent = 'z' + map.getZoom().toFixed(2); };
+      map.on('zoom', upd);
+      map.on('move', upd);
+      map.on('load', upd);
+      upd();
+    })();
+
     // ══ SUOMI-MERKKI ("Suomi"-tekstin alla oleva pyöreä P) ═════════════
     // Sama toimintaperiaate kuin poistetuissa kaupunkimerkeissä, mutta VAIN
     // maan nimelle ja paljon yksinkertaisempana: yksi kohde, ei näkyvyys-
