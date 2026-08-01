@@ -5612,7 +5612,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-p';
+    const APP_BUILD   = '2026-08-01-q';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -11879,9 +11879,73 @@
     //   punainen nimi, ei merkkiä → tekstin sisäinen kuva ei piirry
     //   ei mitään, mutta ikoni näkyy → tekstiosa ei piirry lainkaan
     //   ei mitään ollenkaan       → taso ei piirry vaikka kysely väittää muuta
-    // '' = tuotanto · 'imageonly' = tekstikentässä VAIN kuva, ei nimeä
-    // (ratkaiseva testi: piirtyykö tekstin sisäinen kuva ylipäätään)
-    const CITY_PIN_DEBUG = 'imageonly';
+    const CITY_PIN_DEBUG = '';   // '' = tuotanto
+
+    // ⚠️ TEKSTIN SISÄINEN KUVA (`['image',…]` text-fieldissä) EI PIIRRY tässä
+    // ympäristössä — todettu buildissa -p kokeella jossa tekstikentässä oli
+    // VAIN kuva. Sama kuva piirtyy ongelmitta `icon-image`na. Siksi merkki on
+    // nyt ikoni, ja sen SIJAINTI JA KOKO johdetaan taustakartan nimitason
+    // omasta `text-size`-lausekkeesta — ei mitattuna eikä arvattuna.
+    //
+    // Merkin korkeus = CITY_PIN_REL × nimen tekstikoko
+    // Merkin yläreuna = ankkuri + (nimen alareuna + rako) × tekstikoko
+    const CITY_PIN_REL   = 1.00;   // ← merkin koko suhteessa nimen kokoon
+    const CITY_PIN_GAP_REL = 0.20; // ← rako nimen alareunasta, suhteessa kokoon
+    const CITY_PIN_NATIVE = 38;    // 76 px kangas @pixelRatio 2
+
+    // Nimen ALAREUNA ankkuripisteestä, tekstikoon kerrannaisena. Riippuu vain
+    // ankkurista, koska tekstin korkeus on suhteessa tekstikokoon.
+    function cityNameBottomRel(anchor){
+      const a = String(anchor || 'center');
+      if (a.indexOf('top') === 0)    return 0.72;   // nimi ankkurin alapuolella
+      if (a.indexOf('bottom') === 0) return 0.00;   // nimi ankkurin yläpuolella
+      return 0.36;                                  // keskitetty ankkuriin
+    }
+
+    // Kertoo lausekkeen KAIKKI numeeriset ULOSTULOT vakiolla, koskematta
+    // syötteisiin tai rajakohtiin. Näin `text-size`-lausekkeesta saadaan
+    // suoraan `icon-size` ilman että ['zoom'] siirtyy pois top-leveliltä
+    // (aritmetiikka lausekkeen ympärillä olisi tyylispekissä virheellistä).
+    // Palauttaa null jos rakennetta ei tunnisteta → käytetään vakiokokoa.
+    function scaleExprNumbers(expr, k){
+      if (typeof expr === 'number') return expr * k;
+      if (!Array.isArray(expr)) return null;
+      const op = expr[0];
+      if (op === 'interpolate' || op === 'interpolate-hcl' || op === 'interpolate-lab') {
+        const out = [op, expr[1], expr[2]];
+        for (let i = 3; i + 1 < expr.length; i += 2) {
+          const v = scaleExprNumbers(expr[i + 1], k);
+          if (v === null) return null;
+          out.push(expr[i], v);
+        }
+        return out;
+      }
+      if (op === 'step') {
+        const first = scaleExprNumbers(expr[2], k);
+        if (first === null) return null;
+        const out = [op, expr[1], first];
+        for (let i = 3; i + 1 < expr.length; i += 2) {
+          const v = scaleExprNumbers(expr[i + 1], k);
+          if (v === null) return null;
+          out.push(expr[i], v);
+        }
+        return out;
+      }
+      if (op === 'match' || op === 'case') {
+        const start = (op === 'match') ? 2 : 1;
+        const out = (op === 'match') ? [op, expr[1]] : [op];
+        for (let i = start; i + 1 < expr.length; i += 2) {
+          const v = scaleExprNumbers(expr[i + 1], k);
+          if (v === null) return null;
+          out.push(expr[i], v);
+        }
+        const dflt = scaleExprNumbers(expr[expr.length - 1], k);
+        if (dflt === null) return null;
+        out.push(dflt);
+        return out;
+      }
+      return null;
+    }
     let _cityPinLayers = [];             // { id, src, sl, mode } diagnostiikkaa varten
     let _cityPinAnchorInfo = '';         // diagnostiikkaan: ankkuri + laskettu siirto
 
@@ -11947,65 +12011,44 @@
         const L = layers.find(x => x.id === lid);
         if (!L || !L.source) return;
 
-        const layout = {};
-        CITY_COPY_LAYOUT.forEach(k => {
-          let v;
-          try { v = map.getLayoutProperty(lid, k); } catch(e){}
-          if (v !== undefined && v !== null) layout[k] = v;
-        });
+        // Luetaan nimitason asetukset — ei kirjoiteta mitään.
+        const rd = (k) => { try { const v = map.getLayoutProperty(lid, k); return (v === undefined) ? null : v; } catch(e){ return null; } };
+        let anchor = rd('text-anchor');
+        if (!anchor) {
+          const va = rd('text-variable-anchor');
+          if (Array.isArray(va) && typeof va[0] === 'string') anchor = va[0];
+        }
+        const tSize = rd('text-size');
+        const tOff  = rd('text-offset');
+        const offY  = (Array.isArray(tOff) && typeof tOff[1] === 'number') ? tOff[1] : 0;
 
-        // text-variable-anchor EI toimi yhdessä text-allow-overlapin kanssa,
-        // joten siitä otetaan vain ensisijainen ankkuri jos text-anchoria ei ole.
-        if (!layout['text-anchor']) {
-          let va;
-          try { va = map.getLayoutProperty(lid, 'text-variable-anchor'); } catch(e){}
-          if (Array.isArray(va) && typeof va[0] === 'string') layout['text-anchor'] = va[0];
+        // icon-size niin että merkin korkeus = CITY_PIN_REL × tekstikoko.
+        let iconSize = scaleExprNumbers(tSize, CITY_PIN_REL / CITY_PIN_NATIVE);
+        let sizeMode = 'skaalattu';
+        if (iconSize === null) {
+          iconSize = CITY_PIN_REL * 15 / CITY_PIN_NATIVE;   // varasuunnitelma
+          sizeMode = 'vakio';
         }
 
-        // Sisäkkäistä formatia ei voi käyttää osiona → silloin pelkkä nimi.
-        let orig;
-        try { orig = map.getLayoutProperty(lid, 'text-field'); } catch(e){}
-        const nameExpr = (Array.isArray(orig) && orig[0] === 'format') ? ['get', 'name']
-                       : (orig || ['get', 'name']);
+        // icon-offset on pikseleitä KERROTTUNA icon-sizella, joten kun
+        // icon-size on verrannollinen tekstikokoon, myös siirto skaalautuu
+        // automaattisesti nimen mukana vaikka luku on vakio.
+        const dropRel = offY + cityNameBottomRel(anchor) + CITY_PIN_GAP_REL;
+        const offsetY = dropRel * CITY_PIN_NATIVE / CITY_PIN_REL;
 
-        if (CITY_PIN_DEBUG === 'imageonly') {
-          // RATKAISEVA TESTI: tekstikentässä on VAIN kuva, ei nimeä eikä
-          // rivinvaihtoa. Jos merkki näkyy kaupungin kohdalla → tekstin
-          // sisäinen kuva toimii ja vika on kaksirivisessä rakenteessa.
-          // Jos ei näy → tekstin sisäinen kuva ei toimi tässä ympäristössä,
-          // ja koko lähestymistapa on vaihdettava.
-          layout['text-field'] = ['format', ['image', 'city-pin'], {}];
-        } else {
-          layout['text-field'] = ['format',
-            nameExpr, { 'text-color': 'rgba(0,0,0,0)' },
-            '\n', {},
-            ['image', 'city-pin'], {}
-          ];
-        }
-        layout['text-line-height']      = CITY_PIN_LINE_HEIGHT;
-
-        // Toinen rivi kasvattaa lohkoa → ankkuri on kompensoitava (ks. yllä).
-        // text-offset on em-yksiköissä, samoin rivinkorkeus.
-        const _shift = (CITY_PIN_DEBUG === 'imageonly')
-          ? 0   // yksirivinen → ei kompensointia
-          : cityPinAnchorShiftEm(layout['text-anchor'], CITY_PIN_LINE_HEIGHT);
-        const _off   = layout['text-offset'];
-        if (Array.isArray(_off) && _off.length === 2 &&
-            typeof _off[0] === 'number' && typeof _off[1] === 'number') {
-          layout['text-offset'] = [_off[0], _off[1] + _shift];
-        } else {
-          // Lausekemuotoista siirtoa ei voi laskea yhteen → käytetään omaa.
-          layout['text-offset'] = [0, _shift];
-        }
+        const layout = {
+          'icon-image': 'city-pin',
+          'icon-size': iconSize,
+          'icon-anchor': 'top',
+          'icon-offset': [0, Math.round(offsetY * 100) / 100],
+          // Ei saa kilpailla tilasta taustakartan nimien kanssa.
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true
+        };
         if (!_cityPinAnchorInfo) {
-          _cityPinAnchorInfo = (layout['text-anchor'] || 'center') + '+' + _shift.toFixed(2) + 'em';
+          _cityPinAnchorInfo = (anchor || 'center') + ' ' + sizeMode +
+            ' drop' + dropRel.toFixed(2);
         }
-        // Oma taso ei saa kilpailla tilasta taustakartan nimien kanssa eikä
-        // työntää niitä pois — se olisi kartan käyttäytymiseen puuttumista.
-        layout['text-allow-overlap']    = true;
-        layout['text-ignore-placement'] = true;
-        layout['icon-allow-overlap']    = true;
-        layout['icon-ignore-placement'] = true;
 
         const mine = ['in', ['get', 'name'], ['literal', names]];
         const def = {
@@ -12013,7 +12056,7 @@
           source: L.source,
           'source-layer': L['source-layer'],
           layout,
-          paint: { 'text-opacity': 1 }
+          paint: {}
         };
         if (L.minzoom !== undefined) def.minzoom = L.minzoom;
         if (L.maxzoom !== undefined) def.maxzoom = L.maxzoom;
@@ -12061,6 +12104,9 @@
 
       let feats = [];
       try { feats = map.queryRenderedFeatures({ layers: cityLabelLayerIds() }); } catch(e){ return; }
+      // Vikasieto: jos kysely ei palauta yhtään nimeä, se epäonnistui — älä
+      // piilota kaikkea sen perusteella.
+      if (!feats.length) return;
       feats.forEach(f => {
         const nm = f.properties && f.properties.name;
         if (!nm || !nameSet.has(nm)) return;
@@ -12113,7 +12159,7 @@
       try { labelsNow = map.queryRenderedFeatures({ layers: cityLabelLayerIds() })
         .filter(f => f.properties && names.indexOf(f.properties.name) >= 0).length; } catch(e){}
       return 'kuva ' + (img ? 'ok' : 'EI') +
-             ' · ankkuri ' + (_cityPinAnchorInfo || '–') +
+             ' · ' + (_cityPinAnchorInfo || '–') +
              ' · tasoja ' + _cityPinLayers.length + ' (' + slName + ')' +
              ' · lähteessä ' + inSource +
              ' · piirtyy ' + rendered +
