@@ -5612,7 +5612,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-n';
+    const APP_BUILD   = '2026-08-01-o';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -11879,7 +11879,7 @@
     //   punainen nimi, ei merkkiä → tekstin sisäinen kuva ei piirry
     //   ei mitään, mutta ikoni näkyy → tekstiosa ei piirry lainkaan
     //   ei mitään ollenkaan       → taso ei piirry vaikka kysely väittää muuta
-    const CITY_PIN_DEBUG = true;
+    const CITY_PIN_DEBUG = false;
     let _cityPinLayers = [];             // { id, src, sl, mode } diagnostiikkaa varten
     let _cityPinAnchorInfo = '';         // diagnostiikkaan: ankkuri + laskettu siirto
 
@@ -12019,13 +12019,13 @@
         // jos addLayer kaatuu, yritetään pelkällä omalla suodattimella.
         try {
           def.filter = L.filter ? ['all', L.filter, mine] : mine;
-          map.addLayer(def);
+          map.addLayer(def, labelsBeforeId());
           made++;
           _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'], mode: 'kopioitu suodatin' });
         } catch(e) {
           try {
             def.filter = mine;
-            map.addLayer(def);
+            map.addLayer(def, labelsBeforeId());
             made++;
             _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'], mode: 'oma suodatin' });
           } catch(e2){ console.warn('city pin layer', myId, e2); }
