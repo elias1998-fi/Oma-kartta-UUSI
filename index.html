@@ -5612,7 +5612,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-u';
+    const APP_BUILD   = '2026-08-01-v';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -12100,9 +12100,17 @@
           'icon-ignore-placement': true
         };
         if (!_cityPinAnchorInfo) {
-          _cityPinAnchorInfo = 'ankkuri ' + (anchor || 'center') +
-            (hasVarAnchor ? '(vaihtuva!)' : '') + ' ' + sizeMode +
-            ' drop' + dropRel.toFixed(2);
+          // Kertoo suoraan onko Studio-muutos mennyt perille:
+          //   ankkuri <arvo>      = kiinteä (hyvä)  ·  LAUSEKE = zoom-riippuvainen
+          //   piste on/ei         = onko nimitasolla yhä oma piste-ikoni
+          //   (vaihtuva!)         = text-variable-anchor yhä käytössä
+          const anchorConst = (typeof anchor === 'string');
+          const dotImg = rd('icon-image');
+          _cityPinAnchorInfo =
+            'ankkuri ' + (anchorConst ? anchor : 'LAUSEKE') +
+            (hasVarAnchor ? '(vaihtuva!)' : '') +
+            ' · piste ' + (dotImg ? 'ON' : 'ei') +
+            ' · ' + sizeMode + ' drop' + dropRel.toFixed(2);
         }
 
         const mine = ['in', ['get', 'name'], ['literal', names]];
