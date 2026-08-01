@@ -5638,7 +5638,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-y';
+    const APP_BUILD   = '2026-08-02-c';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5694,6 +5694,13 @@
     // tapped. The P-marker lives at the map centre, so flying to the feature's
     // centre puts the marker right on it.
     const SELECT_ZOOM = 15.5;
+
+    // Suomi + reilusti ympäristöä. Näiden ulkopuolelle karttaa ei voi
+    // panoroida, joten näkymä pysyy aina siinä missä sovelluksella on dataa.
+    // ⚠️ Laatikon on oltava selvästi isompi kuin Suomi: maxBounds nostaa
+    // TEHOLLISTA minZoomia, jos näkymä ei enää mahdu laatikkoon. Liian tiukka
+    // laatikko estäisi loitontamisen kokonaan.
+    const MAP_MAX_BOUNDS = [[10.0, 53.5], [40.0, 73.5]];   // [lounas, koillinen]
 
     // ══ TASOJÄRJESTYS ══════════════════════════════════════════════════
     // Kaikki sovelluksen omat karttatasot lisätään taustakartan NIMITASOJEN
@@ -6168,13 +6175,31 @@
       style: _mapStyleUrl,
       center: _sharedInitialCenter || [25.35, 64.9],   // Suomen keskivaiheilla
       zoom:   _sharedInitialZoom   || 4.2,   // tarkennetaan fitBoundsilla
-      // minZoom 0 = koko maapallo mahtuu ruudulle (Mapboxin alaraja).
+      // ⚠️ MERCATOR, EI GLOBEA.
+      // Mapbox GL JS siirtyy pallosta Mercatoriin zoomien 5 ja 6 välillä
+      // (GLOBE_ZOOM_THRESHOLD_MIN = 5, MAX = 6). Siirtymän aikana symbolien
+      // näyttökoordinaatit lasketaan eri tavalla ja osa symboleista jätetään
+      // varjostimessa piirtämättä — juuri siksi paikannimet pienenivät
+      // hetkeksi ja katosivat kokonaan zoomilla 6. Ilmiö koskee KAIKKIA
+      // nimiä (myös maiden), näkyy muokkaamattomallakin Streets-tyylillä
+      // eikä liity mitenkään tämän sovelluksen koodiin.
+      // Mercator-projektiossa siirtymää ei ole, joten ongelma katoaa.
+      // Sama asetus kannattaa laittaa myös Studioon (Global → Projection),
+      // jotta esikatselu vastaa sovellusta.
+      projection: 'mercator',
+      // Karttaa ei voi panoroida Suomen ympäristön ulkopuolelle. Laatikko on
+      // väljä, jotta Suomen ympärille jää reilusti karttaa näkyviin.
+      maxBounds: MAP_MAX_BOUNDS,
+      // minZoom asetetaan AJOSSA Suomi-sovituksen jälkeen (ks.
+      // fitFinlandAtStart) — silloin se osuu oikein näytön koosta riippumatta.
       minZoom: 0, maxZoom: 20,
       transformRequest, maxTileCacheSize: 50,
-      // Symbolien (paikannimet, ikonit) häivytysaika ms. Oli 100, mikä teki
-      // uusien nimien ilmestymisestä äkillisen. Mapboxin oletus ja Standard-
-      // tyylin pehmeä vaikutelma tulevat arvosta 300.
-      fadeDuration: 300,
+      // Symbolien (paikannimet, ikonit) häivytysaika ms.
+      // PERUTTU 300 → 100: nostin sen buildissa -y toivoen pehmeämpää
+      // ilmestymistä, mutta käyttäjä raportoi sen jälkeen että nimet KATOAVAT
+      // hetkeksi kun zoomin 6 ylittää edestakaisin. Pidempi häivytys tekee
+      // tiilenvaihdon katkoksesta NÄKYVÄMMÄN, ei pehmeämmän. Takaisin 100:aan.
+      fadeDuration: 100,
       dragRotate: false, touchPitch: false, pitchWithRotate: false,
       keyboard: false, attributionControl: false, doubleClickZoom: false
     });
@@ -6221,6 +6246,10 @@
 
     map.on('style.load', () => {
       clearTimeout(_styleWatchTimer);
+      // Tyylitiedostossa voi olla oma projektio (Studio kirjoittaa sen Global-
+      // välilehdeltä). setStyle ottaa sen käyttöön ja kumoaisi konstruktorin
+      // asetuksen → pakotetaan Mercator joka tyylin latauksen jälkeen.
+      try { if (map.getProjection().name !== 'mercator') map.setProjection('mercator'); } catch(e){}
       // setStyle pudottaa omat tasot ja kuvat → luodaan uudelleen.
       try { ensureCityPins(); } catch(e){}
       let lc = 0;
@@ -6406,6 +6435,9 @@
     }
 
     // Sovellus avautuu näkymään jossa KOKO SUOMI on kerralla ruudulla.
+    // Loitonnusvara: kuinka monta zoom-tasoa Suomi-sovituksen ULKOPUOLELLE
+    // käyttäjä saa loitontaa. 1.0 = Suomi näkyy noin puolet pienempänä.
+    const ZOOM_OUT_SLACK = 0.7;
     // (Aiempi automaattinen keskitys käyttäjän sijaintiin on poistettu —
     // sijaintinappi oikeassa yläkulmassa toimii ennallaan.)
     const FINLAND_BOUNDS = [[19.0, 59.6], [31.7, 70.2]];   // [lounas, koillinen]
@@ -6417,12 +6449,27 @@
       map.once('zoomstart', markMoved);
       const fit = () => {
         if (moved) return;
-        try { map.fitBounds(FINLAND_BOUNDS, { padding: 24, duration: 0 }); } catch(e){}
+        try {
+          map.fitBounds(FINLAND_BOUNDS, { padding: 24, duration: 0 });
+          // Alaraja johdetaan sovituksesta, ei arvata: näytön koko ratkaisee
+          // millä zoomilla Suomi mahtuu ruudulle. Näin loitonnusvara on sama
+          // puhelimessa ja isolla näytöllä.
+          const z = map.getZoom();
+          if (isFinite(z)) map.setMinZoom(Math.max(0, z - ZOOM_OUT_SLACK));
+        } catch(e){}
       };
       if (map.loaded()) fit(); else map.once('load', fit);
       // Ruudun koko voi olla vielä väärä ensimmäisellä kierroksella (mobiilin
       // osoiterivi), joten sovitus tehdään vielä kerran kun kartta on asettunut.
       map.once('idle', () => { if (!moved) fit(); });
+      // Näytön koon muuttuessa (kierto) alaraja lasketaan uusiksi, muuten se
+      // jäisi väärään arvoon vaakanäkymässä.
+      window.addEventListener('resize', () => {
+        try {
+          const b = map.cameraForBounds(FINLAND_BOUNDS, { padding: 24 });
+          if (b && isFinite(b.zoom)) map.setMinZoom(Math.max(0, b.zoom - ZOOM_OUT_SLACK));
+        } catch(e){}
+      });
     })();
 
     map.on('load', () => {
