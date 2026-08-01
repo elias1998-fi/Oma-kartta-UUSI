@@ -5612,7 +5612,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-t';
+    const APP_BUILD   = '2026-08-01-u';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -11881,14 +11881,77 @@
     //   ei mitään ollenkaan       → taso ei piirry vaikka kysely väittää muuta
     // '' = tuotanto · 'imageonly' = tekstikentässä VAIN kuva, ei nimeä
     // (ratkaiseva testi: piirtyykö tekstin sisäinen kuva ylipäätään)
-    // VIIMEINEN PUHDAS TESTI: tekstikentässä VAIN kuva — ei nimeä, ei
-    // rivinvaihtoa, ei läpinäkyvää tekstiä. Sama koe ajettiin buildissa -p,
-    // mutta silloin mukana oli näkyvyyssidonta JA cityLabelLayerIds-bugi,
-    // joten tulos ei ollut luotettava. Nyt molemmat ovat pois.
-    const CITY_PIN_DEBUG = 'imageonly';
-    // Näkyvyyssidonta pois tämän mittauksen ajaksi, jotta ruudulla on VAIN
-    // yksi muuttuja. Palautetaan heti kun tiedetään piirtyykö merkki.
-    const CITY_PIN_BIND_VISIBILITY = false;
+    const CITY_PIN_DEBUG = '';
+
+    // ⛔ TEKSTIN SISÄINEN KUVA (`['image',…]` text-fieldissä) EI PIIRRY tässä
+    // ympäristössä. Todettu lopullisesti buildissa -t puhtaalla kokeella:
+    // text-field = pelkkä kuva, näkyvyyssidonta pois, tasotunnistusbugi
+    // korjattu, uudelleenasettelu ajettu, `styleimagemissing` ei laukennut.
+    // ÄLÄ YRITÄ SITÄ ENÄÄ. Merkki on ikoni.
+    //
+    // MERKIN KOKO JA ETÄISYYS johdetaan taustakartan nimitason omasta
+    // `text-size`-lausekkeesta, joten molemmat skaalautuvat nimen mukana
+    // itsestään — myös silloin kun tekstikoko kasvaa zoomatessa.
+    const CITY_PIN_REL     = 1.00;   // ← merkin korkeus / nimen tekstikoko
+    const CITY_PIN_GAP_REL = 0.20;   // ← rako nimen alareunasta, samassa suhteessa
+    const CITY_PIN_NATIVE  = 38;     // 76 px kangas @pixelRatio 2
+
+    // Nimen ALAREUNAN etäisyys ankkurista, tekstikoon kerrannaisena.
+    // ⚠️ TÄMÄ ON AINOA ARVIO KOKO KETJUSSA. Jos tyylissä `text-anchor` on
+    // 'bottom', nimen alareuna ON ankkuri → arvio putoaa pois ja tulos on
+    // täsmällinen. Siksi Studiossa kannattaa lukita ankkuri 'bottom'.
+    function cityNameBottomRel(anchor){
+      const a = String(anchor || 'center');
+      if (a.indexOf('bottom') === 0) return 0.00;   // täsmällinen
+      if (a.indexOf('top') === 0)    return 0.72;
+      return 0.36;                                   // center — arvio
+    }
+
+    // Kertoo lausekkeen numeeriset ULOSTULOT vakiolla koskematta syötteisiin
+    // tai rajakohtiin. Näin `text-size`-lausekkeesta saadaan `icon-size` ilman
+    // että ['zoom'] siirtyy pois top-leveliltä (aritmetiikka lausekkeen
+    // ympärillä olisi tyylispekissä virheellistä). null = tuntematon rakenne.
+    function scaleExprNumbers(expr, k){
+      if (typeof expr === 'number') return expr * k;
+      if (!Array.isArray(expr)) return null;
+      const op = expr[0];
+      if (op === 'interpolate' || op === 'interpolate-hcl' || op === 'interpolate-lab') {
+        const out = [op, expr[1], expr[2]];
+        for (let i = 3; i + 1 < expr.length; i += 2) {
+          const v = scaleExprNumbers(expr[i + 1], k);
+          if (v === null) return null;
+          out.push(expr[i], v);
+        }
+        return out;
+      }
+      if (op === 'step') {
+        const first = scaleExprNumbers(expr[2], k);
+        if (first === null) return null;
+        const out = [op, expr[1], first];
+        for (let i = 3; i + 1 < expr.length; i += 2) {
+          const v = scaleExprNumbers(expr[i + 1], k);
+          if (v === null) return null;
+          out.push(expr[i], v);
+        }
+        return out;
+      }
+      if (op === 'match' || op === 'case') {
+        const start = (op === 'match') ? 2 : 1;
+        const out = (op === 'match') ? [op, expr[1]] : [op];
+        for (let i = start; i + 1 < expr.length; i += 2) {
+          const v = scaleExprNumbers(expr[i + 1], k);
+          if (v === null) return null;
+          out.push(expr[i], v);
+        }
+        const dflt = scaleExprNumbers(expr[expr.length - 1], k);
+        if (dflt === null) return null;
+        out.push(dflt);
+        return out;
+      }
+      return null;
+    }
+    // Merkki näkyy vain kun kartta oikeasti piirtää sen nimen.
+    const CITY_PIN_BIND_VISIBILITY = true;
     let _cityPinLayers = [];             // { id, src, sl, mode } diagnostiikkaa varten
     let _cityPinAnchorInfo = '';         // diagnostiikkaan: ankkuri + laskettu siirto
     // Mapbox laukaisee tämän kun tyyli viittaa kuvaan jota ei ole rekisteröity.
@@ -12001,65 +12064,46 @@
         const L = layers.find(x => x.id === lid);
         if (!L || !L.source) return;
 
-        const layout = {};
-        CITY_COPY_LAYOUT.forEach(k => {
-          let v;
-          try { v = map.getLayoutProperty(lid, k); } catch(e){}
-          if (v !== undefined && v !== null) layout[k] = v;
-        });
+        // Luetaan nimitason asetukset — taustakarttaan ei kirjoiteta mitään.
+        const rd = (k) => { try { const v = map.getLayoutProperty(lid, k); return (v === undefined) ? null : v; } catch(e){ return null; } };
+        let anchor = rd('text-anchor');
+        const va = rd('text-variable-anchor');
+        const hasVarAnchor = Array.isArray(va) && va.length > 0;
+        if (!anchor && hasVarAnchor && typeof va[0] === 'string') anchor = va[0];
 
-        // text-variable-anchor EI toimi yhdessä text-allow-overlapin kanssa,
-        // joten siitä otetaan vain ensisijainen ankkuri jos text-anchoria ei ole.
-        if (!layout['text-anchor']) {
-          let va;
-          try { va = map.getLayoutProperty(lid, 'text-variable-anchor'); } catch(e){}
-          if (Array.isArray(va) && typeof va[0] === 'string') layout['text-anchor'] = va[0];
+        const tSize = rd('text-size');
+        const tOff  = rd('text-offset');
+        const offY  = (Array.isArray(tOff) && typeof tOff[1] === 'number') ? tOff[1] : 0;
+
+        // Merkin korkeus = CITY_PIN_REL × nimen tekstikoko.
+        let iconSize = scaleExprNumbers(tSize, CITY_PIN_REL / CITY_PIN_NATIVE);
+        let sizeMode = 'skaalattu';
+        if (iconSize === null) {
+          iconSize = CITY_PIN_REL * 15 / CITY_PIN_NATIVE;   // varasuunnitelma
+          sizeMode = 'VAKIO';
         }
 
-        // Sisäkkäistä formatia ei voi käyttää osiona → silloin pelkkä nimi.
-        let orig;
-        try { orig = map.getLayoutProperty(lid, 'text-field'); } catch(e){}
-        const nameExpr = (Array.isArray(orig) && orig[0] === 'format') ? ['get', 'name']
-                       : (orig || ['get', 'name']);
+        // icon-offset on pikseleitä KERROTTUNA icon-sizella. Koska icon-size on
+        // verrannollinen tekstikokoon, myös siirto skaalautuu nimen mukana
+        // vaikka luku itsessään on vakio. Tämä ratkaisee zoomin aikana
+        // tapahtuvan tekstikoon kasvun ilman erillistä logiikkaa.
+        const dropRel = offY + cityNameBottomRel(anchor) + CITY_PIN_GAP_REL;
+        const offsetY = dropRel * CITY_PIN_NATIVE / CITY_PIN_REL;
 
-        if (CITY_PIN_DEBUG === 'imageonly') {
-          // RATKAISEVA TESTI: tekstikentässä on VAIN kuva, ei nimeä eikä
-          // rivinvaihtoa. Jos merkki näkyy kaupungin kohdalla → tekstin
-          // sisäinen kuva toimii ja vika on kaksirivisessä rakenteessa.
-          // Jos ei näy → tekstin sisäinen kuva ei toimi tässä ympäristössä,
-          // ja koko lähestymistapa on vaihdettava.
-          layout['text-field'] = ['format', ['image', 'city-pin'], {}];
-        } else {
-          layout['text-field'] = ['format',
-            nameExpr, { 'text-color': 'rgba(0,0,0,0)' },
-            '\n', {},
-            ['image', 'city-pin'], {}
-          ];
-        }
-        layout['text-line-height']      = CITY_PIN_LINE_HEIGHT;
-
-        // Toinen rivi kasvattaa lohkoa → ankkuri on kompensoitava (ks. yllä).
-        // text-offset on em-yksiköissä, samoin rivinkorkeus.
-        const _shift = (CITY_PIN_DEBUG === 'imageonly')
-          ? 0   // yksirivinen → ei kompensointia
-          : cityPinAnchorShiftEm(layout['text-anchor'], CITY_PIN_LINE_HEIGHT);
-        const _off   = layout['text-offset'];
-        if (Array.isArray(_off) && _off.length === 2 &&
-            typeof _off[0] === 'number' && typeof _off[1] === 'number') {
-          layout['text-offset'] = [_off[0], _off[1] + _shift];
-        } else {
-          // Lausekemuotoista siirtoa ei voi laskea yhteen → käytetään omaa.
-          layout['text-offset'] = [0, _shift];
-        }
+        const layout = {
+          'icon-image': 'city-pin',
+          'icon-size': iconSize,
+          'icon-anchor': 'top',
+          'icon-offset': [0, Math.round(offsetY * 100) / 100],
+          // Ei saa kilpailla tilasta taustakartan nimien kanssa.
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true
+        };
         if (!_cityPinAnchorInfo) {
-          _cityPinAnchorInfo = (layout['text-anchor'] || 'center') + '+' + _shift.toFixed(2) + 'em';
+          _cityPinAnchorInfo = 'ankkuri ' + (anchor || 'center') +
+            (hasVarAnchor ? '(vaihtuva!)' : '') + ' ' + sizeMode +
+            ' drop' + dropRel.toFixed(2);
         }
-        // Oma taso ei saa kilpailla tilasta taustakartan nimien kanssa eikä
-        // työntää niitä pois — se olisi kartan käyttäytymiseen puuttumista.
-        layout['text-allow-overlap']    = true;
-        layout['text-ignore-placement'] = true;
-        layout['icon-allow-overlap']    = true;
-        layout['icon-ignore-placement'] = true;
 
         const mine = ['in', ['get', 'name'], ['literal', names]];
         const def = {
@@ -12067,7 +12111,7 @@
           source: L.source,
           'source-layer': L['source-layer'],
           layout,
-          paint: { 'text-opacity': 1 }
+          paint: {}
         };
         if (L.minzoom !== undefined) def.minzoom = L.minzoom;
         if (L.maxzoom !== undefined) def.maxzoom = L.maxzoom;
@@ -12080,16 +12124,14 @@
           map.addLayer(def, labelsBeforeId());
           made++;
           _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'],
-                                labelId: lid, base: L.filter || null,
-                                tf: layout['text-field'] });
+                                labelId: lid, base: L.filter || null });
         } catch(e) {
           try {
             def.filter = mine;
             map.addLayer(def, labelsBeforeId());
             made++;
             _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'],
-                                  labelId: lid, base: null,
-                                  tf: layout['text-field'] });
+                                  labelId: lid, base: null });
           } catch(e2){ console.warn('city pin layer', myId, e2); }
         }
       });
@@ -12097,12 +12139,6 @@
       window.TP_CITYPIN_DIAG = 'nimitasoja ' + seen + ' · merkkitasoja ' + made +
         (seen && !made ? ' — EI LUOTU' : '');
 
-      // Kaksi kierrosta: heti kun kartta on asettunut, ja varmuuden vuoksi
-      // vielä sekunnin päästä. Ajetaan enintään kaksi kertaa.
-      if (made) {
-        setTimeout(forceCityPinRelayout, 900);
-        map.once('idle', () => setTimeout(forceCityPinRelayout, 60));
-      }
     }
 
     // ══ NÄKYVYYDEN SITOMINEN ═══════════════════════════════════════════
@@ -12181,7 +12217,7 @@
         : 'ei puuttuvia';
       return 'kuva ' + (img ? 'ok' : 'EI') + ' · ' + miss +
              ' · sidonta ' + (CITY_PIN_BIND_VISIBILITY ? 'päällä' : 'pois') +
-             ' · uudelleenasettelu ' + _cityRelayoutRuns +
+
              ' · ankkuri ' + (_cityPinAnchorInfo || '–') +
              ' · tasoja ' + _cityPinLayers.length + ' (' + slName + ')' +
              ' · lähteessä ' + inSource +
