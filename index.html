@@ -5612,7 +5612,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-m';
+    const APP_BUILD   = '2026-08-01-n';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -11870,6 +11870,16 @@
     // KOEVERSION RAJAUS: vain merkin sijainti. Näkyvyyskysely (merkki katoaa
     // kun nimi katoaa) ja latausmerkki tulevat vasta jos sijainti osuu.
     const CITY_PIN_LINE_HEIGHT = 1.15;   // ← rako nimen ja merkin välissä (em)
+    // ── VIANHAKUTILA ───────────────────────────────────────────────────
+    // true = tehdään näkyväksi kaikki mikä nyt on näkymätöntä:
+    //   1) nimikopio piirtyy PUNAISENA (normaalisti läpinäkyvä)
+    //   2) sama merkki asetetaan MYÖS tavallisena icon-imagena
+    // Näin nähdään yhdellä silmäyksellä mikä kolmesta pätee:
+    //   punainen nimi + merkki  → kaikki toimii, riittää sammuttaa tämä tila
+    //   punainen nimi, ei merkkiä → tekstin sisäinen kuva ei piirry
+    //   ei mitään, mutta ikoni näkyy → tekstiosa ei piirry lainkaan
+    //   ei mitään ollenkaan       → taso ei piirry vaikka kysely väittää muuta
+    const CITY_PIN_DEBUG = true;
     let _cityPinLayers = [];             // { id, src, sl, mode } diagnostiikkaa varten
     let _cityPinAnchorInfo = '';         // diagnostiikkaan: ankkuri + laskettu siirto
 
@@ -11957,10 +11967,17 @@
                        : (orig || ['get', 'name']);
 
         layout['text-field'] = ['format',
-          nameExpr, { 'text-color': 'rgba(0,0,0,0)' },   // näkymätön, varaa tilan
+          nameExpr, { 'text-color': CITY_PIN_DEBUG ? 'rgba(220,0,0,1)' : 'rgba(0,0,0,0)' },
           '\n', {},
           ['image', 'city-pin'], {}
         ];
+        if (CITY_PIN_DEBUG) {
+          // Toinen, riippumaton tapa piirtää sama merkki. Jos tämä näkyy mutta
+          // tekstin sisäinen ei, vika on nimenomaan tekstin sisäisessä kuvassa.
+          layout['icon-image']  = 'city-pin';
+          layout['icon-size']   = 0.5;
+          layout['icon-anchor'] = 'center';
+        }
         layout['text-line-height']      = CITY_PIN_LINE_HEIGHT;
 
         // Toinen rivi kasvattaa lohkoa → ankkuri on kompensoitava (ks. yllä).
@@ -11990,7 +12007,9 @@
           source: L.source,
           'source-layer': L['source-layer'],
           layout,
-          paint: { 'text-opacity': 1 }
+          paint: CITY_PIN_DEBUG
+            ? { 'text-opacity': 1, 'text-halo-color': 'rgba(255,255,255,0.9)', 'text-halo-width': 1.2 }
+            : { 'text-opacity': 1 }
         };
         if (L.minzoom !== undefined) def.minzoom = L.minzoom;
         if (L.maxzoom !== undefined) def.maxzoom = L.maxzoom;
