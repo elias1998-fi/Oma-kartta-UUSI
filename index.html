@@ -5608,7 +5608,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-h';
+    const APP_BUILD   = '2026-08-01-i';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5690,12 +5690,11 @@
       try { map.moveLayer(id, labelsBeforeId()); } catch(e){ try { map.moveLayer(id); } catch(e2){} }
     }
 
-    // ══ KAUPUNKIMERKIT JA RISTIINHÄIVYTYS ══════════════════════════════
-    // Kaukaa katsottaessa kartalla näkyy kaupunkien nimien alla P-merkki
-    // niissä kaupungeissa joissa sovelluksen kautta on pysäköintiä. Kun
-    // zoomataan lähemmäs, merkit häipyvät ja tilalle häipyvät varsinaiset
-    // pysäköintialueet, hallit ja latauspisteet.
-    const CITY_FADE = { start: 10, end: 11.5 };   // vaihtoalue
+    // ══ PYSÄKÖINTIKOHTEIDEN ZOOM-HÄIVYTYS ══════════════════════════════
+    // Pysäköintialueet, hallit ja latauspisteet häipyvät näkyviin tällä
+    // zoom-välillä ja ovat sen alapuolella kokonaan piilossa.
+    // (Kaupunkien P-merkit on poistettu kokonaan — puhdas pohja.)
+    const CITY_FADE = { start: 10, end: 11.5 };   // häivytysväli
     // ── Ikonien koot ────────────────────────────────────────────────
     // Yksi lähtöluku: latauspisteen halkaisija ruudulla. 12,0 px + 25 %.
     const CHARGING_ICON_PX = 15;
@@ -5710,75 +5709,12 @@
               CITY_FADE.start, CHARGING_ICON_PX / 32,
               CITY_FADE.end,   HALLI_ICON_PX     / 32];
     }
-    // HUOM: kaupunkimerkin koko ei ole karttatason ominaisuus — merkit ovat
-    // DOM-elementtejä (CITY_PIN_PX), ks. "KAUPUNKIEN P-MERKIT" alempana.
 
     // Häipyy NÄKYVIIN zoomatessa (pysäköintikohteet).
     function fadeInExpr(){
       return ['interpolate',['linear'],['zoom'], CITY_FADE.start, 0, CITY_FADE.end, 1];
     }
-    // Häipyy PIILOON zoomatessa (kaupunkimerkit).
-    function fadeOutExpr(){
-      return ['interpolate',['linear'],['zoom'], CITY_FADE.start, 1, CITY_FADE.end, 0];
-    }
 
-    // Kaupungit joissa on pysäköintiä sovelluksen kautta.
-    //   tier 1 = isot kaupungit, näkyvät heti kun koko Suomi on ruudulla
-    //   tier 2 = ympäryskunnat, tulevat näkyviin vasta lähempänä (minzoom 7)
-    // TÄYDENNÄ TÄTÄ LISTAA kun uusia kaupunkeja tulee mukaan.
-    const PARKING_CITIES = [
-      // ── tier 1 ──────────────────────────────────────────────────────
-      // 5. kenttä (true) = kaupungissa on myös sähköautojen latausta
-      ['Helsinki',      24.9384, 60.1699, 1, true],
-      ['Tampere',       23.7610, 61.4978, 1],
-      ['Turku',         22.2666, 60.4518, 1],
-      ['Oulu',          25.4651, 65.0121, 1],
-      ['Kotka',         26.9458, 60.4664, 1],
-      ['Lappeenranta',  28.1887, 61.0587, 1],
-      ['Jyväskylä',     25.7473, 62.2426, 1],
-      // ── tier 2: pääkaupunkiseutu ja kehyskunnat ─────────────────────
-      ['Espoo',         24.6559, 60.2055, 2],
-      ['Vantaa',        25.0378, 60.2934, 2],
-      ['Kauniainen',    24.7290, 60.2118, 2],
-      ['Kerava',        25.1050, 60.4022, 2],
-      ['Järvenpää',     25.0900, 60.4736, 2],
-      ['Tuusula',       25.0297, 60.4028, 2],
-      ['Nurmijärvi',    24.8080, 60.4640, 2],
-      ['Kirkkonummi',   24.4380, 60.1236, 2],
-      ['Sipoo',         25.2700, 60.3776, 2],
-      ['Porvoo',        25.6639, 60.3931, 2],
-      ['Hyvinkää',      24.8598, 60.6306, 2],
-      // ── tier 2: Tampereen seutu ─────────────────────────────────────
-      ['Pirkkala',      23.6450, 61.4653, 2],
-      ['Lempäälä',      23.7530, 61.3130, 2],
-      ['Kangasala',     24.0700, 61.4630, 2],
-      ['Nokia',         23.5100, 61.4780, 2],
-      ['Ylöjärvi',      23.5960, 61.5540, 2],
-      // ── tier 2: Turun seutu ─────────────────────────────────────────
-      ['Kaarina',       22.3700, 60.4070, 2],
-      ['Raisio',        22.1690, 60.4860, 2],
-      ['Naantali',      22.0250, 60.4680, 2],
-      ['Lieto',         22.4570, 60.5010, 2],
-      // ── tier 2: Oulun seutu ─────────────────────────────────────────
-      ['Kempele',       25.5060, 64.9130, 2],
-      ['Liminka',       25.4130, 64.8080, 2],
-      ['Kiiminki',      25.7830, 65.1310, 2],
-      // ── tier 2: Kaakkois-Suomi ──────────────────────────────────────
-      ['Hamina',        27.1970, 60.5690, 2],
-      ['Pyhtää',        26.5390, 60.4930, 2],
-      ['Kouvola',       26.7042, 60.8679, 2],
-      ['Imatra',        28.7560, 61.1710, 2],
-      // ── tier 2: Jyväskylän seutu ────────────────────────────────────
-      ['Muurame',       25.6690, 62.1290, 2],
-      ['Laukaa',        25.9490, 62.4130, 2],
-      ['Jämsä',         25.1900, 61.8640, 2]
-    ];
-
-
-    // Supabase
-    const SUPABASE_URL = 'https://glphxelazjodpiekmoew.supabase.co';
-    const PARKING_TILES_URL = 'https://glphxelazjodpiekmoew.supabase.co/functions/v1/parking-tiles';
-    const SUPABASE_KEY = 'sb_publishable_MEZLuJOl-QsZxgLZI3nnTA_e-xL5VQW';
     // ── Karttatyylin tuoreus ────────────────────────────────────────────
     // ÄLÄ LISÄÄ OMIA QUERY-PARAMETREJA MAPBOXIN TYYLI-URLIIN.
     // Buildissa -i lisättiin tyylipyyntöön `&fresh=<leima>` selaimen
@@ -6175,8 +6111,6 @@
 
     map.on('style.load', () => {
       clearTimeout(_styleWatchTimer);
-      // setStyle pudottaa omat tasot ja kuvat → luodaan uudelleen.
-      try { ensureCityPins(); } catch(e){}
       let lc = 0;
       try { lc = (map.getStyle().layers || []).length; } catch(e){}
       const src = _styleFellBack ? 'varatyyli streets-v12' : 'oma tyyli';
@@ -10170,36 +10104,6 @@
       _halliHiFrame(ctx, pad, base);
       return ctx.getImageData(0, 0, size, size);
     }
-    // Kaupunkimerkki: hallin ikoni ILMAN nuolta — pelkkä sininen neliö + P.
-    // Käytetään kaupunkien nimien alla kertomassa, että kyseisessä kaupungissa
-    // on pysäköintiä sovelluksen kautta.
-    function _drawCityGlyph(ctx) {
-      _drawHalliSquare(ctx);
-      ctx.fillStyle = 'white';
-      // Ilman nuolta P saa olla pystysuunnassa keskellä (hallissa baseline 52).
-      ctx.font = 'bold 40px Arial, Helvetica, sans-serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('P', 32, 34);
-    }
-    // Kaupunkimerkki omalle, isommalle kankaalle: valkoinen pyöristetty
-    // kehys sinisen neliön ympärille (erottuu taustakartasta).
-    function createCityPinCanvas() {
-      const pad = 6, base = 64, size = base + pad * 2;   // 76 px
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      const rad = 13 + pad;                              // kehys seuraa kulmien muotoa
-      ctx.beginPath();
-      ctx.moveTo(rad, 0); ctx.lineTo(size - rad, 0);
-      ctx.quadraticCurveTo(size, 0, size, rad);
-      ctx.lineTo(size, size - rad); ctx.quadraticCurveTo(size, size, size - rad, size);
-      ctx.lineTo(rad, size); ctx.quadraticCurveTo(0, size, 0, size - rad);
-      ctx.lineTo(0, rad); ctx.quadraticCurveTo(0, 0, rad, 0);
-      ctx.closePath();
-      ctx.fillStyle = '#ffffff'; ctx.fill();
-      ctx.save(); ctx.translate(pad, pad); _drawCityGlyph(ctx); ctx.restore();
-      return ctx.getImageData(0, 0, size, size);
-    }
     function createHalliIconCanvas()      { return _halliImageData(_drawHalliGlyph); }
     function createHalliPlainCanvas()     { return _halliImageData(_drawHalliSquare); }    // Valittu (p-merkin alla oleva) halli: sama ikoni + punainen kehys sen
     // MUOTOISENA (pyöristetty neliö), hieman marginaalilla ettei kehys leikkaudu.
@@ -11849,201 +11753,6 @@
     //    and layers, so once the new style has loaded we re-add them from cached
     //    data (parking polygons, halli icons, charging icons). Everything else in
     //    the app is unaffected. ──
-    // ══ KAUPUNKIEN P-MERKIT ════════════════════════════════════════════
-    // ⚠️ TAUSTAKARTTAAN EI KOSKETA. Merkit eivät ole karttatasoja lainkaan
-    // vaan tavallisia DOM-elementtejä kartan päällä. Näin ne eivät voi
-    // vaikuttaa taustakartan nimiin, pallureihin eivätkä törmäyslaskentaan.
-    //
-    // Kaksi vaatimusta jotka tämä toteuttaa (ja joita karttataso ei pystynyt):
-    //  1) merkki näkyy VAIN kun kyseisen kaupungin nimi on oikeasti piirretty
-    //     — luetaan queryRenderedFeaturesilla mitkä nimet kartta juuri nyt
-    //     näyttää, ei arvattu minzoomeilla
-    //  2) merkki ankkuroidaan NIMEN keskipisteeseen, ei kartan ankkuripisteeseen
-    //     — nimen pystysuora sijainti mitataan kartalta
-    const CITY_PIN_GAP_Y = 7;    // px nimen keskipisteestä merkin yläreunaan
-    const CITY_PIN_GAP_X = 2;    // rako P-merkin ja latausmerkin välissä
-    const CITY_PIN_PX    = 15;   // merkin (värillisen osan) koko ruudulla
-
-    const CITY_BY_NAME = new Map(PARKING_CITIES.map(c => [c[0], c]));
-    let _cityPinEls    = new Map();   // nimi → { el, lngLat, dy }
-    let _cityLabelIds  = null;        // taustakartan nimitasot
-    let _cityMeasCache = new Map();   // "layer|rank|zoombucket" → dy
-
-    function cityLabelLayerIds(){
-      if (_cityLabelIds) return _cityLabelIds;
-      const out = [];
-      try {
-        (map.getStyle().layers || []).forEach(l => {
-          if (l.type !== 'symbol' || !l.layout || !l.layout['text-field']) return;
-          const sl = l['source-layer'] || '', id = l.id || '';
-          if (/place_label/i.test(sl) || /settlement|place[-_]label/i.test(id)) out.push(l.id);
-        });
-      } catch(e){}
-      _cityLabelIds = out;
-      return out;
-    }
-
-    // Nimen KESKIPISTEEN etäisyys ankkuripisteestä pystysuunnassa.
-    // Kartalta luetaan pystyprofiili osumatestillä: nimi on korkein yhtenäinen
-    // osumajakso. Näin pallura (oma, matalampi jakso) ei sotke mittausta,
-    // eikä tarvitse tietää mitään tyylin text-anchorista tai tekstikoosta.
-    function measureLabelCenterDy(pt, layerIds){
-      const STEP = 3, TOP = -33, BOT = 24;
-      const hits = [];
-      for (let dy = TOP; dy <= BOT; dy += STEP) {
-        let hit = false;
-        try {
-          hit = map.queryRenderedFeatures(
-            [[pt.x - 1, pt.y + dy - 1], [pt.x + 1, pt.y + dy + 1]], { layers: layerIds }
-          ).length > 0;
-        } catch(e){}
-        hits.push([dy, hit]);
-      }
-      let best = null, cur = null;
-      hits.forEach(([dy, hit]) => {
-        if (hit) { if (!cur) cur = [dy, dy]; else cur[1] = dy; }
-        else if (cur) { if (!best || (cur[1]-cur[0]) > (best[1]-best[0])) best = cur; cur = null; }
-      });
-      if (cur && (!best || (cur[1]-cur[0]) > (best[1]-best[0]))) best = cur;
-      if (!best) return null;
-      return (best[0] + best[1]) / 2;      // jakson keskikohta = nimen keskipiste
-    }
-
-    function cityPinImgTag(src, px){
-      return '<img src="' + src + '" style="width:' + px + 'px;height:' + px +
-             'px;display:block;" alt="">';
-    }
-
-    let _cityPinSrc = null, _cityEvSrc = null;
-    function cityPinSources(){
-      if (!_cityPinSrc) {
-        try {
-          const d = createCityPinCanvas();
-          const cv = document.createElement('canvas');
-          cv.width = d.width; cv.height = d.height;
-          cv.getContext('2d').putImageData(d, 0, 0);
-          _cityPinSrc = cv.toDataURL();
-        } catch(e){ _cityPinSrc = ''; }
-      }
-      if (!_cityEvSrc) { try { _cityEvSrc = cityEvPinSvg(); } catch(e){ _cityEvSrc = ''; } }
-      return [_cityPinSrc, _cityEvSrc];
-    }
-
-    function cityPinLayerEl(){
-      let host = document.getElementById('tp-city-pin-layer');
-      if (!host) {
-        host = document.createElement('div');
-        host.id = 'tp-city-pin-layer';
-        host.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:2;';
-        const mc = document.getElementById('map');
-        if (!mc) return null;
-        mc.appendChild(host);
-      }
-      return host;
-    }
-
-    // Ajetaan kun kartta on asettunut: päivittää mitkä merkit ovat olemassa.
-    function refreshCityPins(){
-      const host = cityPinLayerEl();
-      if (!host) return;
-      const zoom = map.getZoom();
-      if (zoom >= CITY_FADE.end) {                 // ristiinhäivytys ohi
-        _cityPinEls.forEach(r => r.el.remove());
-        _cityPinEls.clear();
-        return;
-      }
-      const layerIds = cityLabelLayerIds();
-      if (!layerIds.length) return;
-
-      let feats = [];
-      try { feats = map.queryRenderedFeatures({ layers: layerIds }); } catch(e){ return; }
-
-      // Kartan juuri nyt PIIRTÄMÄT kaupungit — tästä tulee näkyvyys.
-      const shown = new Map();
-      feats.forEach(f => {
-        const nm = f.properties && f.properties.name;
-        if (nm && CITY_BY_NAME.has(nm) && !shown.has(nm)) shown.set(nm, f);
-      });
-
-      // Poista merkit joiden nimeä ei enää piirretä.
-      _cityPinEls.forEach((rec, nm) => {
-        if (!shown.has(nm)) { rec.el.remove(); _cityPinEls.delete(nm); }
-      });
-
-      const [pinSrc, evSrc] = cityPinSources();
-      const zb = Math.round(zoom * 4) / 4;          // mittauksen välimuistiavain
-
-      shown.forEach((f, nm) => {
-        const c = CITY_BY_NAME.get(nm);
-        const lngLat = [c[1], c[2]];
-        let pt;
-        try { pt = map.project(lngLat); } catch(e){ return; }
-
-        const key = (f.layer && f.layer.id) + '|' +
-                    ((f.properties && f.properties.symbolrank) || '-') + '|' + zb;
-        let dy = _cityMeasCache.get(key);
-        if (dy === undefined) {
-          dy = measureLabelCenterDy(pt, layerIds);
-          if (dy === null) dy = 0;                  // varasuunnitelma: ankkuri
-          _cityMeasCache.set(key, dy);
-          if (_cityMeasCache.size > 400) _cityMeasCache.clear();
-        }
-
-        let rec = _cityPinEls.get(nm);
-        if (!rec) {
-          const el = document.createElement('div');
-          el.style.cssText = 'position:absolute;top:0;left:0;display:flex;gap:' +
-            CITY_PIN_GAP_X + 'px;will-change:transform;';
-          el.innerHTML = cityPinImgTag(pinSrc, CITY_PIN_PX * 76 / 64) +
-            (c[4] ? cityPinImgTag(evSrc, CITY_PIN_PX * 152 / 128) : '');
-          host.appendChild(el);
-          rec = { el, lngLat, dy };
-          _cityPinEls.set(nm, rec);
-        }
-        rec.dy = dy;
-        rec.lngLat = lngLat;
-      });
-
-      positionCityPins();
-    }
-
-    // Ajetaan joka ruudunpiirrossa: pelkkä uudelleenprojisointi, ei kyselyitä.
-    function positionCityPins(){
-      if (!_cityPinEls.size) return;
-      const zoom = map.getZoom();
-      let op = 1;
-      if (zoom > CITY_FADE.start) {
-        op = 1 - (zoom - CITY_FADE.start) / (CITY_FADE.end - CITY_FADE.start);
-        op = Math.max(0, Math.min(1, op));
-      }
-      _cityPinEls.forEach(rec => {
-        let p;
-        try { p = map.project(rec.lngLat); } catch(e){ return; }
-        // Merkin YLÄreuna = nimen keskipiste + CITY_PIN_GAP_Y.
-        rec.el.style.transform =
-          'translate(' + Math.round(p.x) + 'px,' +
-          Math.round(p.y + rec.dy + CITY_PIN_GAP_Y) + 'px) translateX(-50%)';
-        rec.el.style.opacity = op;
-      });
-    }
-
-    function ensureCityPins(){
-      _cityLabelIds = null;
-      _cityMeasCache.clear();
-      _cityPinEls.forEach(r => r.el.remove());
-      _cityPinEls.clear();
-      refreshCityPins();
-    }
-
-    (function bindCityPins(){
-      let t = null;
-      const soon = () => { clearTimeout(t); t = setTimeout(refreshCityPins, 60); };
-      map.on('idle', soon);
-      map.on('moveend', soon);
-      map.on('zoomend', soon);
-      map.on('render', positionCityPins);
-    })();
-
     function reapplyMapLayers() {
       // Clean slate: remove any custom layers/sources that survived the style
       // switch. Otherwise a lingering source sends renderMasterRows/addHalliLayers
@@ -12079,8 +11788,6 @@
       } catch(e){ console.error('reapply halli', e); }
       // Charging icons — addChargingLayer() re-registers its own images.
       try { if (typeof showEvCharging !== 'undefined' && showEvCharging) addChargingLayer(); } catch(e){ console.error('reapply charging', e); }
-      // Kaupunkien P-merkit (setStyle pudottaa myös nämä).
-      ensureCityPins();
     }
     // Map style section: header toggles the collapsible list of style options
     function toggleMapStyleRow() {
@@ -13778,21 +13485,6 @@
         '<rect x="0" y="0" width="128" height="128" rx="26" fill="' + bg + '"/>' +
         '<path fill="#ffffff" fill-rule="evenodd" d="M25.51 107.9C24.25 106.86 24.47 104.66 25.9 104.08C26.43 103.87 35.57 103.77 60.45 103.71C94.1 103.62 94.3 103.62 97.19 103.06C114.76 99.7 120.35 89.61 110.52 79.03C108.46 76.81 106.28 75.01 102.2 72.15L99.22 70.06L98.25 71.09C97.51 71.86 97.08 72.11 96.47 72.11C95.67 72.11 91.11 70 91.11 69.63C91.11 69.19 98.4 58.81 98.71 58.81C98.83 58.81 99.78 59.62 100.82 60.61C103.24 62.92 103.47 63.83 102.13 65.68C101.74 66.21 101.81 66.28 104.59 68.2C106.17 69.28 108.48 70.99 109.74 72C128.16 86.77 120.73 104.95 95.04 107.96C89.68 108.59 26.28 108.53 25.51 107.9ZM43.57 93.77C44.06 92.08 47.53 79.65 47.67 79.11L47.83 78.46L44.13 78.39L40.43 78.32L49.91 68.85L59.38 59.37L57.18 67.2L54.98 75.02L58.6 75.09C60.59 75.13 62.23 75.25 62.23 75.35C62.23 75.45 58 79.75 52.83 84.91C47.66 90.06 43.49 94.05 43.57 93.77ZM83.36 69.1C81.36 67.79 80.34 66.66 78.33 63.53C77.41 62.09 76.11 60.38 75.46 59.73C73.98 58.25 56.79 46.18 54.88 45.28C52.57 44.18 49.85 44.32 46.9 45.68C43.59 47.21 43.18 47.26 34.48 47.27C23.35 47.28 24.42 48.84 24.52 32.68L24.6 21.13L25.42 20.4L26.25 19.66L35.18 19.66C50.31 19.66 49.36 19.31 66.79 31.54C71.46 34.82 77.5 39.05 80.22 40.94C98.11 53.42 97.45 52.88 97.45 54.86C97.45 55.72 96.87 56.67 92.72 62.59C86.91 70.89 86.51 71.17 83.36 69.1ZM9.35 44.25C8 43.43 8 43.43 8 33.47C8 21.13 7.25 22.19 15.99 22.19L21.94 22.19L21.94 33.47L21.94 44.74L16.05 44.74C10.66 44.74 10.08 44.7 9.35 44.25Z"/>' +
         '<rect x="-3" y="-3" width="134" height="134" rx="30" fill="none" stroke="#ff1744" stroke-width="18"/>' +
-        '</svg>'
-      );
-    }
-    // Kaupungin kohdalla nimen alla näytettävä latausmerkki: sama ikoni kuin
-    // kartan latauspisteillä, mutta valkoinen kehys ympärillä (kuten P-merkki).
-    // viewBox laajennettu 12 px joka suuntaan → 152 px, sama suhde kuin
-    // P-merkin 6 px / 64 px.
-    function cityEvPinSvg(){
-      const core = chargingIconSvg('#008151');
-      const inner = atob(core.split(',')[1])
-        .replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
-      return 'data:image/svg+xml;base64,' + btoa(
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-12 -12 152 152" width="152" height="152">' +
-        '<rect x="-12" y="-12" width="152" height="152" rx="38" fill="#ffffff"/>' +
-        inner +
         '</svg>'
       );
     }
