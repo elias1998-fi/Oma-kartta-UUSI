@@ -37,8 +37,8 @@
     #map { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; }
     /* Zoom-taso vasemmassa alareunassa. z-index alle sheetin (20), joten se
        jää sheetin alle kun sheet on auki. pointer-events:none → ei häiritse
-       kartan käyttöä. */
-    #zoom-indicator {
+       kartan käyttöä. HUOM tunnus: ks. kommentti HTML-puolella. */
+    #tp-zoomlevel {
       position: fixed;
       left: 12px;
       bottom: calc(12px + env(safe-area-inset-bottom, 0px));
@@ -3696,8 +3696,15 @@
 <body>
   <!-- Splash Screen -->
   <div id="map"></div>
-  <!-- Zoom-tason indikaattori vasemmassa alareunassa (kehitystyökalu). -->
-  <div id="zoom-indicator">z–</div>
+  <!-- Zoom-tason indikaattori vasemmassa alareunassa (kehitystyökalu).
+       ⚠️ ID EI SAA OLLA 'zoom-indicator': sovelluksessa on jo ENNESTÄÄN sen
+       niminen elementti sheetin sisällä (asetuksista kytkettävä lukema).
+       Kaksoistunnus rikkoi kaksi asiaa kerralla: getElementById palautti
+       tämän elementin sovelluksen omalle logiikalle (→ tämä piiloutui/näkyi
+       väärin), JA tämän CSS-sääntö osui myös vanhaan elementtiin antaen sille
+       left+bottom position:absoluten päälle, jolloin se venyi koko sheetin
+       kokoiseksi valkoiseksi peitoksi ("haalea verho" suodatinnäkymässä). -->
+  <div id="tp-zoomlevel">z–</div>
 
   <!-- Unified center marker — morphs between standalone P pin and full badge -->
   <div id="center-marker">
@@ -5631,7 +5638,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-x';   // zoom-indikaattori vasemmalla alhaalla
+    const APP_BUILD   = '2026-08-01-y';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -6163,7 +6170,11 @@
       zoom:   _sharedInitialZoom   || 4.2,   // tarkennetaan fitBoundsilla
       // minZoom 0 = koko maapallo mahtuu ruudulle (Mapboxin alaraja).
       minZoom: 0, maxZoom: 20,
-      transformRequest, maxTileCacheSize: 50, fadeDuration: 100,
+      transformRequest, maxTileCacheSize: 50,
+      // Symbolien (paikannimet, ikonit) häivytysaika ms. Oli 100, mikä teki
+      // uusien nimien ilmestymisestä äkillisen. Mapboxin oletus ja Standard-
+      // tyylin pehmeä vaikutelma tulevat arvosta 300.
+      fadeDuration: 300,
       dragRotate: false, touchPitch: false, pitchWithRotate: false,
       keyboard: false, attributionControl: false, doubleClickZoom: false
     });
@@ -12274,7 +12285,7 @@
     }
 
     (function bindZoomIndicator(){
-      const el = document.getElementById('zoom-indicator');
+      const el = document.getElementById('tp-zoomlevel');
       if (!el) return;
       const upd = () => { el.textContent = 'z' + map.getZoom().toFixed(2); };
       map.on('zoom', upd);
