@@ -5612,7 +5612,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-l';
+    const APP_BUILD   = '2026-08-01-m';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -11871,6 +11871,25 @@
     // kun nimi katoaa) ja latausmerkki tulevat vasta jos sijainti osuu.
     const CITY_PIN_LINE_HEIGHT = 1.15;   // ← rako nimen ja merkin välissä (em)
     let _cityPinLayers = [];             // { id, src, sl, mode } diagnostiikkaa varten
+    let _cityPinAnchorInfo = '';         // diagnostiikkaan: ankkuri + laskettu siirto
+
+    // ⚠️ ANKKURIKORJAUS — tämä oli buildin -k vika.
+    // Taustakartan nimi on YKSIRIVINEN, oma symbolimme KAKSIRIVINEN. Ankkuri
+    // koskee koko tekstilohkoa, joten kaksirivinen lohko asettuu eri tavalla
+    // kuin yksirivinen: esim. ankkurilla 'center' lohkon KESKIKOHTA menee
+    // ankkuripisteeseen, jolloin näkymätön nimi nousee puoli riviä ylös ja
+    // P-merkki laskeutuu suoraan oikean nimen päälle (piiloon sen taakse).
+    // Korjaus: siirretään lohkoa alaspäin niin että sen ENSIMMÄINEN rivi
+    // osuu samaan kohtaan kuin taustakartan yksirivinen nimi.
+    //   ankkuri top*    → lohkon yläreuna ankkurissa, rivi 1 jo oikein → 0
+    //   ankkuri center  → puoli riviä alas
+    //   ankkuri bottom* → kokonainen rivi alas
+    function cityPinAnchorShiftEm(anchor, lineHeight){
+      const a = String(anchor || 'center');
+      if (a.indexOf('top') === 0)    return 0;
+      if (a.indexOf('bottom') === 0) return lineHeight;
+      return lineHeight / 2;
+    }
 
     // Asetukset jotka vaikuttavat siihen MIHIN symboli asettuu. Kaikki
     // kopioidaan sellaisenaan; puuttuvat jätetään pois jolloin Mapboxin oma
@@ -11943,6 +11962,21 @@
           ['image', 'city-pin'], {}
         ];
         layout['text-line-height']      = CITY_PIN_LINE_HEIGHT;
+
+        // Toinen rivi kasvattaa lohkoa → ankkuri on kompensoitava (ks. yllä).
+        // text-offset on em-yksiköissä, samoin rivinkorkeus.
+        const _shift = cityPinAnchorShiftEm(layout['text-anchor'], CITY_PIN_LINE_HEIGHT);
+        const _off   = layout['text-offset'];
+        if (Array.isArray(_off) && _off.length === 2 &&
+            typeof _off[0] === 'number' && typeof _off[1] === 'number') {
+          layout['text-offset'] = [_off[0], _off[1] + _shift];
+        } else {
+          // Lausekemuotoista siirtoa ei voi laskea yhteen → käytetään omaa.
+          layout['text-offset'] = [0, _shift];
+        }
+        if (!_cityPinAnchorInfo) {
+          _cityPinAnchorInfo = (layout['text-anchor'] || 'center') + '+' + _shift.toFixed(2) + 'em';
+        }
         // Oma taso ei saa kilpailla tilasta taustakartan nimien kanssa eikä
         // työntää niitä pois — se olisi kartan käyttäytymiseen puuttumista.
         layout['text-allow-overlap']    = true;
@@ -11966,13 +12000,13 @@
         // jos addLayer kaatuu, yritetään pelkällä omalla suodattimella.
         try {
           def.filter = L.filter ? ['all', L.filter, mine] : mine;
-          map.addLayer(def, labelsBeforeId());
+          map.addLayer(def);
           made++;
           _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'], mode: 'kopioitu suodatin' });
         } catch(e) {
           try {
             def.filter = mine;
-            map.addLayer(def, labelsBeforeId());
+            map.addLayer(def);
             made++;
             _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'], mode: 'oma suodatin' });
           } catch(e2){ console.warn('city pin layer', myId, e2); }
@@ -12007,6 +12041,7 @@
       try { labelsNow = map.queryRenderedFeatures({ layers: cityLabelLayerIds() })
         .filter(f => f.properties && names.indexOf(f.properties.name) >= 0).length; } catch(e){}
       return 'kuva ' + (img ? 'ok' : 'EI') +
+             ' · ankkuri ' + (_cityPinAnchorInfo || '–') +
              ' · tasoja ' + _cityPinLayers.length + ' (' + slName + ')' +
              ' · lähteessä ' + inSource +
              ' · piirtyy ' + rendered +
