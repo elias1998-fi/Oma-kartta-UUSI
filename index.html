@@ -5608,7 +5608,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-07-31-l';
+    const APP_BUILD   = '2026-07-31-m';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5664,6 +5664,79 @@
     // tapped. The P-marker lives at the map centre, so flying to the feature's
     // centre puts the marker right on it.
     const SELECT_ZOOM = 15.5;
+
+    // ══ KAUPUNKIMERKIT JA RISTIINHÄIVYTYS ══════════════════════════════
+    // Kaukaa katsottaessa kartalla näkyy kaupunkien nimien alla P-merkki
+    // niissä kaupungeissa joissa sovelluksen kautta on pysäköintiä. Kun
+    // zoomataan lähemmäs, merkit häipyvät ja tilalle häipyvät varsinaiset
+    // pysäköintialueet, hallit ja latauspisteet.
+    const CITY_FADE = { start: 10, end: 11.5 };   // vaihtoalue
+    // Latauspisteen ikonin koko: 64 px natiivi × 0.1875 = 12,0 px.
+    // Hallin ikoni on 32 px natiivi × 0.675 = 21,6 px eli selvästi isompi.
+    const CHARGING_ICON_SIZE = 0.1875;
+    // Kaupunkimerkki piirretään 64 px kankaalle @pixelRatio 2 = 32 px natiivi,
+    // joten sama 12,0 px ruudulla kuin latauspisteellä.
+    const CITY_PIN_SIZE = 12 / 32;
+
+    // Häipyy NÄKYVIIN zoomatessa (pysäköintikohteet).
+    function fadeInExpr(){
+      return ['interpolate',['linear'],['zoom'], CITY_FADE.start, 0, CITY_FADE.end, 1];
+    }
+    // Häipyy PIILOON zoomatessa (kaupunkimerkit).
+    function fadeOutExpr(){
+      return ['interpolate',['linear'],['zoom'], CITY_FADE.start, 1, CITY_FADE.end, 0];
+    }
+
+    // Kaupungit joissa on pysäköintiä sovelluksen kautta.
+    //   tier 1 = isot kaupungit, näkyvät heti kun koko Suomi on ruudulla
+    //   tier 2 = ympäryskunnat, tulevat näkyviin vasta lähempänä (minzoom 7)
+    // TÄYDENNÄ TÄTÄ LISTAA kun uusia kaupunkeja tulee mukaan.
+    const PARKING_CITIES = [
+      // ── tier 1 ──────────────────────────────────────────────────────
+      ['Helsinki',      24.9384, 60.1699, 1],
+      ['Tampere',       23.7610, 61.4978, 1],
+      ['Turku',         22.2666, 60.4518, 1],
+      ['Oulu',          25.4651, 65.0121, 1],
+      ['Kotka',         26.9458, 60.4664, 1],
+      ['Lappeenranta',  28.1887, 61.0587, 1],
+      ['Jyväskylä',     25.7473, 62.2426, 1],
+      // ── tier 2: pääkaupunkiseutu ja kehyskunnat ─────────────────────
+      ['Espoo',         24.6559, 60.2055, 2],
+      ['Vantaa',        25.0378, 60.2934, 2],
+      ['Kauniainen',    24.7290, 60.2118, 2],
+      ['Kerava',        25.1050, 60.4022, 2],
+      ['Järvenpää',     25.0900, 60.4736, 2],
+      ['Tuusula',       25.0297, 60.4028, 2],
+      ['Nurmijärvi',    24.8080, 60.4640, 2],
+      ['Kirkkonummi',   24.4380, 60.1236, 2],
+      ['Sipoo',         25.2700, 60.3776, 2],
+      ['Porvoo',        25.6639, 60.3931, 2],
+      ['Hyvinkää',      24.8598, 60.6306, 2],
+      // ── tier 2: Tampereen seutu ─────────────────────────────────────
+      ['Pirkkala',      23.6450, 61.4653, 2],
+      ['Lempäälä',      23.7530, 61.3130, 2],
+      ['Kangasala',     24.0700, 61.4630, 2],
+      ['Nokia',         23.5100, 61.4780, 2],
+      ['Ylöjärvi',      23.5960, 61.5540, 2],
+      // ── tier 2: Turun seutu ─────────────────────────────────────────
+      ['Kaarina',       22.3700, 60.4070, 2],
+      ['Raisio',        22.1690, 60.4860, 2],
+      ['Naantali',      22.0250, 60.4680, 2],
+      ['Lieto',         22.4570, 60.5010, 2],
+      // ── tier 2: Oulun seutu ─────────────────────────────────────────
+      ['Kempele',       25.5060, 64.9130, 2],
+      ['Liminka',       25.4130, 64.8080, 2],
+      ['Kiiminki',      25.7830, 65.1310, 2],
+      // ── tier 2: Kaakkois-Suomi ──────────────────────────────────────
+      ['Hamina',        27.1970, 60.5690, 2],
+      ['Pyhtää',        26.5390, 60.4930, 2],
+      ['Kouvola',       26.7042, 60.8679, 2],
+      ['Imatra',        28.7560, 61.1710, 2],
+      // ── tier 2: Jyväskylän seutu ────────────────────────────────────
+      ['Muurame',       25.6690, 62.1290, 2],
+      ['Laukaa',        25.9490, 62.4130, 2],
+      ['Jämsä',         25.1900, 61.8640, 2]
+    ];
 
 
     // Supabase
@@ -6249,6 +6322,9 @@
 
     map.on('load', () => {
       map.touchZoomRotate.disableRotation(); map.dragRotate.disable();
+      // Kaupunkien P-merkit heti — ne näkyvät ennen kuin varsinaista dataa on
+      // ladattu, eivätkä riipu Supabasesta.
+      ensureCityPins();
       // Trigger initial viewport load once map is stable
       setTimeout(() => {
         checkParking();
@@ -9332,7 +9408,12 @@
         baseFill:  [13, 0.26, 15, 0.21, 17, 0.16, 19, 0.13],  // maksulliset + ilmaiset, perustila
         baseLine:  [13, 0.60, 15, 0.55, 17, 0.47, 19, 0.42]
       };
-      return S[key];
+      // Ristiinhäivytys: kaikki aluetasojen läpinäkyvyydet kulkevat tämän
+      // kautta, joten vaihtoalueen stopit riittää lisätä tähän yhteen paikkaan.
+      // Zoomin 13 arvo toistetaan vaihtoalueen yläpäässä, jotta 11,5–13
+      // pysyy tasaisena.
+      const base = S[key];
+      return [CITY_FADE.start, 0, CITY_FADE.end, base[1]].concat(base);
     }
     function hlOpacity(key){
       return ['interpolate', ['linear'], ['zoom']].concat(hlStops(key));
@@ -10029,6 +10110,18 @@
       _halliHiFrame(ctx, pad, base);
       return ctx.getImageData(0, 0, size, size);
     }
+    // Kaupunkimerkki: hallin ikoni ILMAN nuolta — pelkkä sininen neliö + P.
+    // Käytetään kaupunkien nimien alla kertomassa, että kyseisessä kaupungissa
+    // on pysäköintiä sovelluksen kautta.
+    function _drawCityGlyph(ctx) {
+      _drawHalliSquare(ctx);
+      ctx.fillStyle = 'white';
+      // Ilman nuolta P saa olla pystysuunnassa keskellä (hallissa baseline 52).
+      ctx.font = 'bold 40px Arial, Helvetica, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('P', 32, 34);
+    }
+    function createCityPinCanvas()        { return _halliImageData(_drawCityGlyph); }
     function createHalliIconCanvas()      { return _halliImageData(_drawHalliGlyph); }
     function createHalliPlainCanvas()     { return _halliImageData(_drawHalliSquare); }    // Valittu (p-merkin alla oleva) halli: sama ikoni + punainen kehys sen
     // MUOTOISENA (pyöristetty neliö), hieman marginaalilla ettei kehys leikkaudu.
@@ -10092,7 +10185,8 @@
           'icon-image': 'halli-icon',   // aina varsinainen ikoni, ei kuutiota kaukaa
           'icon-size': 0.675,   // VAKIO — ei enää zoom-sidottua pulpahdusta (0.675 = entinen suurin koko)
           'icon-allow-overlap': true, 'icon-anchor': 'center'
-        }
+        },
+        paint: { 'icon-opacity': fadeInExpr() }
       });
       // Korostuskerros p-merkin ALLA olevalle hallille: suurennettu,
       // punareunainen ikoni (suodatin rajaa vain valittuun featureen; feature-
@@ -10111,7 +10205,8 @@
             'icon-image': 'halli-icon-hi',
             'icon-size': 0.675,   // VAKIO — ei enää zoom-sidottua pulpahdusta (0.675 = entinen suurin koko)
             'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
-          }
+          },
+          paint: { 'icon-opacity': fadeInExpr() }
         });
       }
       if (map.getLayer('halli-hi-icon')) map.moveLayer('halli-hi-icon');
@@ -11672,6 +11767,50 @@
     //    and layers, so once the new style has loaded we re-add them from cached
     //    data (parking polygons, halli icons, charging icons). Everything else in
     //    the app is unaffected. ──
+    // ══ KAUPUNKIEN P-MERKIT ════════════════════════════════════════════
+    // Kaksi tasoa, jotta ympäryskunnat tulevat näkyviin vasta lähempänä —
+    // samaan tapaan kuin taustakartan omat kaupunginosanimet.
+    //   tp-city-pins-1  isot kaupungit, näkyvät heti
+    //   tp-city-pins-2  ympäryskunnat, minzoom 7
+    // Molemmat häipyvät pois zoomilla CITY_FADE.start…end, samalla kun
+    // pysäköintikohteet häipyvät esiin (fadeInExpr / fadeOutExpr).
+    function ensureCityPins() {
+      try {
+        if (!map.hasImage('city-pin')) {
+          map.addImage('city-pin', createCityPinCanvas(), { pixelRatio: 2 });
+        }
+        if (!map.getSource('tp-city-pins')) {
+          map.addSource('tp-city-pins', {
+            type: 'geojson',
+            data: {
+              type: 'FeatureCollection',
+              features: PARKING_CITIES.map(c => ({
+                type: 'Feature',
+                properties: { name: c[0], tier: c[3] },
+                geometry: { type: 'Point', coordinates: [c[1], c[2]] }
+              }))
+            }
+          });
+        }
+        [[1, 'tp-city-pins-1', 0], [2, 'tp-city-pins-2', 7]].forEach(([tier, id, minz]) => {
+          if (map.getLayer(id)) return;
+          map.addLayer({
+            id, type: 'symbol', source: 'tp-city-pins', minzoom: minz,
+            maxzoom: CITY_FADE.end + 0.01,   // taso sammuu kun häivytys on valmis
+            filter: ['==', ['get', 'tier'], tier],
+            layout: {
+              'icon-image': 'city-pin',
+              'icon-size': CITY_PIN_SIZE,
+              'icon-allow-overlap': true,
+              'icon-ignore-placement': true,
+              'icon-anchor': 'center'
+            },
+            paint: { 'icon-opacity': fadeOutExpr() }
+          });
+        });
+      } catch(e) { console.error('city pins', e); }
+    }
+
     function reapplyMapLayers() {
       // Clean slate: remove any custom layers/sources that survived the style
       // switch. Otherwise a lingering source sends renderMasterRows/addHalliLayers
@@ -11679,7 +11818,9 @@
       // shows. Removing first guarantees a fresh re-add in BOTH directions.
       ['master-poly-fill','master-poly-line','master-poly-hover-fill','master-poly-hover-line','master-poly-group-line','master-poly-group-fill','halli-icons','charging-icons']
         .forEach(id => { if (map.getLayer(id)) { try { map.removeLayer(id); } catch(e){} } });
-      ['master-polygons','halli-points','charging-points']
+      ['tp-city-pins-1','tp-city-pins-2']
+        .forEach(id => { if (map.getLayer(id)) { try { map.removeLayer(id); } catch(e){} } });
+      ['master-polygons','halli-points','charging-points','tp-city-pins']
         .forEach(id => { if (map.getSource(id)) { try { map.removeSource(id); } catch(e){} } });
 
       // Parking-area polygons (fill/line layers — no icons needed).
@@ -11707,6 +11848,8 @@
       } catch(e){ console.error('reapply halli', e); }
       // Charging icons — addChargingLayer() re-registers its own images.
       try { if (typeof showEvCharging !== 'undefined' && showEvCharging) addChargingLayer(); } catch(e){ console.error('reapply charging', e); }
+      // Kaupunkien P-merkit (setStyle pudottaa myös nämä).
+      ensureCityPins();
     }
     // Map style section: header toggles the collapsible list of style options
     function toggleMapStyleRow() {
@@ -13512,8 +13655,9 @@
               id: 'charging-icons', type: 'symbol', source: 'charging-points',
               layout: {
                 'icon-image': ['case', ['get','available'], 'charging-green', 'charging-gray'],   // aina varsinainen ikoni
-                'icon-size': 0.3375, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
-              }
+                'icon-size': CHARGING_ICON_SIZE, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
+              },
+              paint: { 'icon-opacity': fadeInExpr() }
             });
             // Korostuskerros p-merkin ALLA olevalle latauspisteelle: suurennettu,
             // punareunainen ikoni (suodatinpohjainen, kuten hallissa).
@@ -13524,8 +13668,9 @@
                 filter: _chNone,
                 layout: {
                   'icon-image': ['case', ['get','available'], 'charging-green-hi', 'charging-gray-hi'],
-                  'icon-size': 0.3375, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
-                }
+                  'icon-size': CHARGING_ICON_SIZE, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
+                },
+                paint: { 'icon-opacity': fadeInExpr() }
               });
             }
             if (map.getLayer('charging-hi-icon')) map.moveLayer('charging-hi-icon');
