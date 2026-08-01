@@ -4187,10 +4187,6 @@
           <div class="about-version" id="about-style" style="max-width:60%;text-align:right;">–</div>
         </div>
         <div class="settings-item" style="cursor:default;">
-          <div class="settings-item-text"><div class="settings-item-label">Kaupunkimerkin sijoitus</div></div>
-          <div class="about-version" id="about-citypin" style="max-width:60%;text-align:right;">–</div>
-        </div>
-        <div class="settings-item" style="cursor:default;">
           <div class="settings-item-text"><div class="settings-item-label">Viimeisin karttavirhe</div></div>
           <div class="about-version" id="about-maperror" style="max-width:60%;text-align:right;word-break:break-word;">–</div>
         </div>
@@ -5612,7 +5608,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-c';
+    const APP_BUILD   = '2026-08-01-d';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5711,116 +5707,17 @@
     }
 
     // ── Merkin sijainti kaupungin nimen alla ────────────────────────────
-    // Pystysuunta: taustakartan paikannimen KOKO KASVAA zoomatessa, joten
-    // kiinteä siirto jättäisi kaukana ison ja lähellä pienen raon. Siirto on
-    // siksi zoom-riippuvainen ja kalibroitu niin, että rako vastaa zoom-tason
-    // 10 tilannetta kaikilla zoomeilla. Arvot ovat ARVIO Mapboxin
-    // settlement-label-tekstikoon rampista — säädä jos rako heittää.
-    // ── Merkin sijainti kaupungin nimen alla ────────────────────────────
-    // Taustakartan paikannimi elää zoomin mukana: tekstikoko kasvaa ja
-    // Mapbox voi vaihtaa tekstin ankkuria (nimi välillä pisteen päällä,
-    // välillä sen alla). Kiinteä tai arvattu zoom-ramppi ei siis voi pitää
-    // rakoa vakiona — molemmat aiemmat yritykset (kiinteä 14 px, sitten
-    // arvattu CITY_DY_STOPS-ramppi) epäonnistuivat juuri tästä syystä.
-    //
-    // Nyt siirto MITATAAN kartalta: etsitään taustakartan oman nimitason
-    // tekstin alareuna ja asetetaan merkki sen alle vakioraon päähän. Näin
-    // rako on käyttäjälle sama kaikilla zoom-tasoilla, eikä taustakartan
-    // omaan nimien piirtoon kosketa lainkaan.
-    const CITY_LABEL_GAP = 3;      // rako nimen alareunasta merkin yläreunaan
-    const CITY_PIN_GAP   = 2;      // rako P-merkin ja latausmerkin välissä
-    const CITY_DY_FALLBACK = 14;   // jos mittaus ei onnistu
-    let _cityLabelLayerId = null;
-    let _cityDy = CITY_DY_FALLBACK;
-
-    // Taustakartan paikannimitaso. Mapbox Streets -skeemassa source-layer on
-    // 'place_label'; tunnistus tehdään siitä ja taso-id:stä, jotta tämä toimii
-    // myös omassa Studio-tyylissä jossa id:t voivat poiketa.
-    function findSettlementLabelLayer(){
-      let best = null;
-      try {
-        (map.getStyle().layers || []).forEach(l => {
-          if (l.type !== 'symbol' || !l.layout || !l.layout['text-field']) return;
-          const sl = l['source-layer'] || '', id = l.id || '';
-          if (!/place_label/i.test(sl) && !/settlement|place[-_]label/i.test(id)) return;
-          if (/subdivision/i.test(id)) { if (!best) best = l.id; return; }
-          if (!best || !/settlement|place/i.test(best)) best = l.id;
-        });
-      } catch(e){}
-      return best;
-    }
-
-    // Kuinka monta pikseliä nimen alareuna on ankkuripisteen alapuolella.
-    // Osumatesti tehdään queryRenderedFeaturesilla, joka osuu tekstin
-    // todelliseen piirtoalueeseen — siksi tulos seuraa tekstikokoa ja
-    // ankkurin vaihtumista automaattisesti.
-    function measureLabelBottom(name, lngLat){
-      if (!_cityLabelLayerId || !map.getLayer(_cityLabelLayerId)) return null;
-      let pt;
-      try { pt = map.project(lngLat); } catch(e){ return null; }
-      const W = map.getCanvas().clientWidth, H = map.getCanvas().clientHeight;
-      if (!(pt.x > 20 && pt.y > 20 && pt.x < W - 20 && pt.y < H - 20)) return null;
-      const hit = (y) => {
-        try {
-          return map.queryRenderedFeatures(
-            [[pt.x - 2, y - 1], [pt.x + 2, y + 1]], { layers: [_cityLabelLayerId] }
-          ).some(f => String((f.properties && f.properties.name) || '') === name);
-        } catch(e){ return false; }
-      };
-      let y = null;
-      if (hit(pt.y)) y = pt.y;
-      else {
-        // Nimi ei ole ankkuripisteen kohdalla — etsi se läheltä.
-        for (let d = 3; d <= 45 && y === null; d += 3) {
-          if (hit(pt.y + d))      y = pt.y + d;
-          else if (hit(pt.y - d)) y = pt.y - d;
-        }
-      }
-      if (y === null) return null;
-      const limit = y + 60;
-      while (y < limit && hit(y + 2)) y += 2;
-      return y - pt.y;
-    }
-
-    // Mittaa yhdestä näkyvissä olevasta kaupungista ja käyttää tulosta
-    // kaikkiin merkkeihin — sama zoom, sama nimikoko, sama siirto.
-    function calibrateCityPins(){
-      if (!map.getLayer('tp-city-p-1') && !map.getLayer('tp-city-pe-1')) return;
-      if (map.getZoom() > CITY_FADE.end) return;      // merkit jo sammuneet
-      if (!_cityLabelLayerId) _cityLabelLayerId = findSettlementLabelLayer();
-      let measured = null;
-      for (let i = 0; i < PARKING_CITIES.length && measured === null; i++) {
-        const c = PARKING_CITIES[i];
-        measured = measureLabelBottom(c[0], [c[1], c[2]]);
-      }
-      const dy = (measured === null) ? _cityDy : Math.round((measured + CITY_LABEL_GAP) * 10) / 10;
-      window.TP_CITYPIN_DIAG = 'taso: ' + (_cityLabelLayerId || 'EI LÖYTYNYT') +
-        ' · z' + map.getZoom().toFixed(1) +
-        ' · mitattu ' + (measured === null ? 'EI ONNISTUNUT' : measured.toFixed(0) + ' px') +
-        ' · siirto ' + dy.toFixed(1) + ' px';
-      if (Math.abs(dy - _cityDy) < 0.5 && measured !== null) return;   // ei muutosta
-      _cityDy = dy;
-      applyCityTranslate();
-    }
-
-    // Vaakasiirto lasketaan merkin nykyisestä koosta, jotta ev-pari pysyy
-    // vierekkäin myös merkkien kasvaessa häivytyksen aikana.
-    function applyCityTranslate(){
-      const w = cityPinPxAt(map.getZoom()) * 76 / 64;     // merkki kehyksineen
-      [[1, 0], [2, 7]].forEach(([tier]) => {
-        [['tp-city-p-'  + tier,  0],
-         ['tp-city-pe-' + tier, -1],
-         ['tp-city-ev-' + tier, +1]].forEach(([id, side]) => {
-          if (!map.getLayer(id)) return;
-          const dx = Math.round(side * (w + CITY_PIN_GAP) / 2 * 10) / 10;
-          try { map.setPaintProperty(id, 'icon-translate', [dx, _cityDy]); } catch(e){}
-        });
-      });
-    }
-
-    function cityTranslate(side){          // aloitusarvo tasoa luotaessa
-      const w = cityPinPxAt(CITY_FADE.start) * 76 / 64;
-      return [Math.round(side * (w + CITY_PIN_GAP) / 2 * 10) / 10, _cityDy];
+    // PUHDAS POHJA. Aiemmat yritykset (arvattu zoom-ramppi, sitten ajonaikainen
+    // mittaus queryRenderedFeaturesilla) poistettu kokonaan — molemmat tekivät
+    // sijainnista epävakaan. Nyt tässä on vain kaksi lukua eikä mitään logiikkaa:
+    // merkin yläreuna on CITY_PIN_DY pikseliä nimen ankkuripisteen alapuolella,
+    // aina, kaikilla zoom-tasoilla.
+    const CITY_PIN_DY  = 7;    // pystyrako nimen alle
+    const CITY_PIN_GAP = 2;    // rako P-merkin ja latausmerkin välissä
+    function cityTranslate(side){          // side: -1 vasen, 0 keskellä, +1 oikea
+      const w  = cityPinPxAt(CITY_FADE.start) * 76 / 64;   // merkki kehyksineen
+      const dx = side * (w + CITY_PIN_GAP) / 2;
+      return [Math.round(dx * 10) / 10, CITY_PIN_DY];
     }
 
     // Häipyy NÄKYVIIN zoomatessa (pysäköintikohteet).
@@ -11975,18 +11872,6 @@
       } catch(e) { console.error('city pins', e); }
     }
 
-    // Kalibrointi ajetaan kun kartta on asettunut. 'idle' takaa että
-    // taustakartan nimet on jo sijoitettu, jolloin mittaus osuu.
-    (function bindCityCalibration(){
-      let t = null;
-      const run = () => { clearTimeout(t); t = setTimeout(() => {
-        try { applyCityTranslate(); calibrateCityPins(); } catch(e){}
-      }, 90); };
-      map.on('idle', run);
-      map.on('zoomend', run);
-      map.on('moveend', run);
-      map.on('styledata', () => { _cityLabelLayerId = null; run(); });
-    })();
 
     // Kolme tasoa per porras:
     //   p     — pelkkä P-merkki, keskitetty nimen alle
@@ -13125,8 +13010,6 @@
     function openAboutSettings() {
       const _sd = document.getElementById('about-style');
       if (_sd) _sd.textContent = window.TP_STYLE_DIAG || '–';
-      const _cp = document.getElementById('about-citypin');
-      if (_cp) _cp.textContent = window.TP_CITYPIN_DIAG || '–';
       const _me = document.getElementById('about-maperror');
       if (_me) _me.textContent = window.TP_LAST_MAP_ERROR || '–';
       document.getElementById('about-detail').classList.add('open');
