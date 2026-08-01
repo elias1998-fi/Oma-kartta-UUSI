@@ -5608,7 +5608,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-07-31-m';
+    const APP_BUILD   = '2026-08-01-a';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5671,12 +5671,29 @@
     // zoomataan lähemmäs, merkit häipyvät ja tilalle häipyvät varsinaiset
     // pysäköintialueet, hallit ja latauspisteet.
     const CITY_FADE = { start: 10, end: 11.5 };   // vaihtoalue
-    // Latauspisteen ikonin koko: 64 px natiivi × 0.1875 = 12,0 px.
-    // Hallin ikoni on 32 px natiivi × 0.675 = 21,6 px eli selvästi isompi.
-    const CHARGING_ICON_SIZE = 0.1875;
-    // Kaupunkimerkki piirretään 64 px kankaalle @pixelRatio 2 = 32 px natiivi,
-    // joten sama 12,0 px ruudulla kuin latauspisteellä.
-    const CITY_PIN_SIZE = 12 / 32;
+    // ── Ikonien koot ────────────────────────────────────────────────
+    // Yksi lähtöluku: latauspisteen halkaisija ruudulla. 12,0 px + 25 %.
+    const CHARGING_ICON_PX = 15;
+    // Latauspisteen SVG on 128 px @pixelRatio 2 = 64 px natiivi.
+    const CHARGING_ICON_SIZE = CHARGING_ICON_PX / 64;        // 0.234375
+    // Hallin ikoni on 64 px kangas @pixelRatio 2 = 32 px natiivi.
+    const HALLI_ICON_SIZE     = 0.675;                       // 21,6 px, täysi koko
+    const HALLI_ICON_SIZE_MIN = CHARGING_ICON_PX / 32;       // 15,0 px = latauspisteen koko
+    // Halli kasvaa latauspisteen kokoisesta täyteen kokoonsa täsmälleen
+    // ristiinhäivytyksen aikana — sama zoom-väli kuin läpinäkyvyydellä.
+    function halliSizeExpr(){
+      return ['interpolate',['linear'],['zoom'],
+              CITY_FADE.start, HALLI_ICON_SIZE_MIN,
+              CITY_FADE.end,   HALLI_ICON_SIZE];
+    }
+    // Kaupunkimerkin SININEN NELIÖ on yhtä suuri kuin latauspisteen ikoni.
+    // Kangas on 76 px (64 + 6 px valkoista kehystä joka reunalla) @pixelRatio 2
+    // = 38 px natiivi, mutta kerroin lasketaan sinisen osan (32 px) mukaan.
+    const CITY_PIN_SIZE = CHARGING_ICON_PX / 32;             // 0.46875
+    // Merkki lasketaan nimen ALAPUOLELLE: icon-anchor 'top' vie ikonin
+    // yläreunan ankkuripisteeseen, ja tämä siirtää sitä alaspäin ruutu-
+    // pikseleinä (icon-translate ei skaalaudu icon-sizen mukana).
+    const CITY_PIN_DY = 14;
 
     // Häipyy NÄKYVIIN zoomatessa (pysäköintikohteet).
     function fadeInExpr(){
@@ -10121,7 +10138,25 @@
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('P', 32, 34);
     }
-    function createCityPinCanvas()        { return _halliImageData(_drawCityGlyph); }
+    // Kaupunkimerkki omalle, isommalle kankaalle: valkoinen pyöristetty
+    // kehys sinisen neliön ympärille (erottuu taustakartasta).
+    function createCityPinCanvas() {
+      const pad = 6, base = 64, size = base + pad * 2;   // 76 px
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      const rad = 13 + pad;                              // kehys seuraa kulmien muotoa
+      ctx.beginPath();
+      ctx.moveTo(rad, 0); ctx.lineTo(size - rad, 0);
+      ctx.quadraticCurveTo(size, 0, size, rad);
+      ctx.lineTo(size, size - rad); ctx.quadraticCurveTo(size, size, size - rad, size);
+      ctx.lineTo(rad, size); ctx.quadraticCurveTo(0, size, 0, size - rad);
+      ctx.lineTo(0, rad); ctx.quadraticCurveTo(0, 0, rad, 0);
+      ctx.closePath();
+      ctx.fillStyle = '#ffffff'; ctx.fill();
+      ctx.save(); ctx.translate(pad, pad); _drawCityGlyph(ctx); ctx.restore();
+      return ctx.getImageData(0, 0, size, size);
+    }
     function createHalliIconCanvas()      { return _halliImageData(_drawHalliGlyph); }
     function createHalliPlainCanvas()     { return _halliImageData(_drawHalliSquare); }    // Valittu (p-merkin alla oleva) halli: sama ikoni + punainen kehys sen
     // MUOTOISENA (pyöristetty neliö), hieman marginaalilla ettei kehys leikkaudu.
@@ -10183,7 +10218,7 @@
         id: 'halli-icons', type: 'symbol', source: 'halli-points',
         layout: {
           'icon-image': 'halli-icon',   // aina varsinainen ikoni, ei kuutiota kaukaa
-          'icon-size': 0.675,   // VAKIO — ei enää zoom-sidottua pulpahdusta (0.675 = entinen suurin koko)
+          'icon-size': halliSizeExpr(),   // latauspisteen koosta täyteen kokoon häivytyksen aikana
           'icon-allow-overlap': true, 'icon-anchor': 'center'
         },
         paint: { 'icon-opacity': fadeInExpr() }
@@ -10203,7 +10238,7 @@
           filter: _hiNone,
           layout: {
             'icon-image': 'halli-icon-hi',
-            'icon-size': 0.675,   // VAKIO — ei enää zoom-sidottua pulpahdusta (0.675 = entinen suurin koko)
+            'icon-size': halliSizeExpr(),
             'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
           },
           paint: { 'icon-opacity': fadeInExpr() }
@@ -11803,9 +11838,13 @@
               'icon-size': CITY_PIN_SIZE,
               'icon-allow-overlap': true,
               'icon-ignore-placement': true,
-              'icon-anchor': 'center'
+              'icon-anchor': 'top'
             },
-            paint: { 'icon-opacity': fadeOutExpr() }
+            paint: {
+              'icon-opacity': fadeOutExpr(),
+              'icon-translate': [0, CITY_PIN_DY],
+              'icon-translate-anchor': 'viewport'
+            }
           });
         });
       } catch(e) { console.error('city pins', e); }
