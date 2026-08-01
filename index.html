@@ -5642,7 +5642,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-02-f';
+    const APP_BUILD   = '2026-08-02-h';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5744,20 +5744,33 @@
 
     // ── Ikonien koot ────────────────────────────────────────────────
     // Yksi lähtöluku: latauspisteen halkaisija ruudulla. 12,0 px + 25 %.
+    // ⚠️ VANHENTUNUT: latauspisteellä oli oma vakiokoko 15 px, halli kasvoi
+    // 10,8 → 21,6 px. Ne olivat siis eri kokoisia (z12,5: halli 12,6 px vs.
+    // latauspiste 15,0 px). Nyt molemmat käyttävät samaa käyrää, ks.
+    // POI_ICON_PX / poiSizeExpr alempana.
     const CHARGING_ICON_PX = 15;
     // Latauspisteen SVG on 128 px @pixelRatio 2 = 64 px natiivi.
     const CHARGING_ICON_SIZE = CHARGING_ICON_PX / 64;        // 0.234375
     // Hallin ikoni on 64 px kangas @pixelRatio 2 = 32 px natiivi.
     const HALLI_ICON_PX = 21.6;                               // hallin täysi koko
-    // Halli alkaa PUOLIKKAANA zoomilla 8 ja kasvaa tasaisesti täyteen kokoonsa
-    // zoomiin HALLI_GROW_END mennessä. Kasvu on erillään häivytyksestä, joten
-    // sitä voi säätää ilman että vaihdon nopeus muuttuu.
-    const HALLI_GROW_END = 15;
-    function halliSizeExpr(){
+    // ══ HALLIEN JA LATAUSPISTEIDEN YHTEINEN KOKO ═══════════════════════
+    // Molemmat ovat nyt SAMAN KOKOISIA joka zoomilla: alkavat puolikkaana
+    // häivytyksen alkaessa ja kasvavat täyteen kokoonsa POI_GROW_END:iin
+    // mennessä. Kasvu on erillään häivytyksestä, joten nopeutta voi säätää
+    // koskematta kokoon.
+    // Yksi luku ohjaa molempia:
+    const POI_ICON_PX  = 21.6;              // ← hallin JA latauspisteen koko
+    const POI_GROW_END = 15;                // mihin zoomiin mennessä täysi koko
+    const HALLI_GROW_END = POI_GROW_END;    // vanha nimi säilytetty
+    // nativePx = ikonin natiivikoko (kangas @pixelRatio 2 puolitettuna):
+    //   halli 64 px kangas → 32 · latauspiste 128 px SVG → 64
+    function poiSizeExpr(nativePx){
       return ['interpolate',['linear'],['zoom'],
-              CITY_FADE.start, HALLI_ICON_PX / 2 / 32,
-              HALLI_GROW_END,  HALLI_ICON_PX     / 32];
+              CITY_FADE.start, POI_ICON_PX / 2 / nativePx,
+              POI_GROW_END,    POI_ICON_PX     / nativePx];
     }
+    function halliSizeExpr(){ return poiSizeExpr(32); }
+    function chargingSizeExpr(){ return poiSizeExpr(64); }
 
     // Häipyy NÄKYVIIN zoomatessa. Oletuksena hallien väli; latauspisteille
     // annetaan CHARGING_FADE.
@@ -10373,7 +10386,7 @@
         id: 'halli-icons', type: 'symbol', source: 'halli-points',
         layout: {
           'icon-image': 'halli-icon',   // aina varsinainen ikoni, ei kuutiota kaukaa
-          'icon-size': halliSizeExpr(),   // latauspisteen koosta täyteen kokoon häivytyksen aikana
+          'icon-size': halliSizeExpr(),   // sama käyrä kuin latauspisteellä
           // icon-ignore-placement PAKOLLINEN: ilman sitä halli-ikonit osallistuvat
           // taustakartan tormayslaskentaan ja tyontavat paikannimia pois. Helsingin
           // nimi katosi kokonaan, koska hallit ovat siella tiheimmassa. HUOM:
@@ -12175,8 +12188,14 @@
           // ⚠️ PAKOLLINEN: omilla merkkitasoillamme on SAMA source-layer ja
           // text-field kuin nimitasoilla, joten ne osuivat tähän ehtoon ja
           // sotkivat sekä näkyvyyssidonnan että tasojen uudelleenluonnin.
-          if (id.indexOf('tp-city-pin-') === 0) return;
-          if (/place_label/i.test(sl) || /settlement|place[-_]label/i.test(id)) out.push(l.id);
+          if (id.indexOf('tp-city-') === 0) return;
+          // Vain varsinaiset kaupunkien nimitasot:
+          //  – kaupunginosat (settlement-subdivision-label) POIS, käyttäjän pyyntö
+          //  – maat / osavaltiot / mantereet POIS, vaikka ne ovat samassa
+          //    source-layerissa (place_label)
+          if (/subdivision/i.test(id)) return;
+          if (!/settlement/i.test(id)) return;
+          out.push(l.id);
         });
       } catch(e){}
       return out;
@@ -12214,7 +12233,6 @@
         }
       } catch(e){ console.error('city-pin image', e); }
 
-      const names  = PARKING_CITIES.map(c => c[0]);
       const layers = map.getStyle().layers || [];
       const ids    = cityLabelLayerIds();
       seen = ids.length;
@@ -12327,7 +12345,8 @@
             ' · drop' + dropRel.toFixed(2);
         }
 
-        const mine = ['in', ['get', 'name'], ['literal', names]];
+        // Merkki KAIKILLE tämän tason kaupungeille — ei enää nimilistaa.
+        // Näkyvyyssidonta rajaa nämä niihin jotka kartta oikeasti piirtää.
         const def = {
           id: myId, type: 'symbol',
           source: L.source,
@@ -12343,7 +12362,7 @@
         // sääntöjä. Vanhanmallista suodatinta ei voi yhdistää lausekkeeseen →
         // jos addLayer kaatuu, yritetään pelkällä omalla suodattimella.
         try {
-          def.filter = L.filter ? ['all', L.filter, mine] : mine;
+          if (L.filter) def.filter = L.filter;
           map.addLayer(def, labelsBeforeId());
           made++;
           _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'],
@@ -12361,7 +12380,7 @@
           });
         } catch(e) {
           try {
-            def.filter = mine;
+            delete def.filter;
             map.addLayer(def, labelsBeforeId());
             made++;
             _cityPinLayers.push({ id: myId, src: def.source, sl: def['source-layer'],
@@ -12427,8 +12446,6 @@
     function bindCityPinVisibility(){
       if (!CITY_PIN_BIND_VISIBILITY) return;
       if (!_cityPinLayers.length) return;
-      const names = PARKING_CITIES.map(c => c[0]);
-      const nameSet = new Set(names);
       const perLayer = new Map();
       _cityPinLayers.forEach(r => perLayer.set(r.id, new Set()));
 
@@ -12436,23 +12453,36 @@
       try { feats = map.queryRenderedFeatures({ layers: cityLabelLayerIds() }); } catch(e){ return; }
       feats.forEach(f => {
         const nm = f.properties && f.properties.name;
-        if (!nm || !nameSet.has(nm)) return;
+        if (!nm) return;
         const lid = f.layer && f.layer.id;
-        const rec = _cityPinLayers.find(r => r.labelId === lid);
-        if (rec) perLayer.get(rec.id).add(nm);
+        // ⚠️ EI find(): samalla nimitasolla on KAKSI omaa tasoa (P-merkki ja
+        // latausmerkki). find() palautti aina ensimmäisen eli P-tason, jolloin
+        // latausmerkkitason nimijoukko jäi tyhjäksi ja sen suodattimeksi tuli
+        // '__tp_none__' → latausmerkki ei näkynyt KOSKAAN. Käydään kaikki läpi.
+        _cityPinLayers.forEach(r => {
+          if (r.labelId === lid && perLayer.has(r.id)) perLayer.get(r.id).add(nm);
+        });
       });
 
       _cityPinLayers.forEach(rec => {
         if (!map.getLayer(rec.id)) return;
         const arr = Array.from(perLayer.get(rec.id) || []);
-        const mine = arr.length
-          ? ['in', ['get', 'name'], ['literal', arr]]
-          : ['==', ['get', 'name'], '__tp_none__'];   // ei yhtään → piilota
+        // Nimiä voi nyt olla paljon (merkki kaikille kaupungeille). Jos lista
+        // kasvaa suureksi, ei rakenneta jättisuodatinta joka kierroksella vaan
+        // näytetään kaikki — törmäysero on silloin merkityksetön.
+        const mine = !arr.length
+          ? ['==', ['get', 'name'], '__tp_none__']          // ei yhtään → piilota
+          : (arr.length > 300 ? null
+                              : ['in', ['get', 'name'], ['literal', arr]]);
         const parts = [];
         if (rec.base)  parts.push(rec.base);
         if (rec.extra) parts.push(rec.extra);   // latausmerkkitasojen kaupunkirajaus
-        parts.push(mine);
-        try { map.setFilter(rec.id, parts.length > 1 ? ['all'].concat(parts) : mine); } catch(e){}
+        if (mine)      parts.push(mine);
+        try {
+          map.setFilter(rec.id,
+            parts.length === 0 ? null :
+            parts.length === 1 ? parts[0] : ['all'].concat(parts));
+        } catch(e){}
       });
     }
 
@@ -12498,10 +12528,15 @@
     //   suodatin ei osu → 'lähteessä 0'
     //   taso ei piirry → 'lähteessä >0' mutta 'piirtyy 0'
     function cityPinDiag(){
-      const names = PARKING_CITIES.map(c => c[0]);
-      const mine  = ['in', ['get', 'name'], ['literal', names]];
-      let img = false;
-      try { img = !!map.hasImage('city-pin'); } catch(e){}
+      let img = false, evImg = false;
+      try { img   = !!map.hasImage('city-pin'); } catch(e){}
+      try { evImg = !!map.hasImage('city-ev-pin'); } catch(e){}
+      const evLayers = _cityPinLayers.filter(r => r.id.indexOf('tp-city-ev-') === 0).length;
+      let evRendered = 0;
+      _cityPinLayers.forEach(r => {
+        if (r.id.indexOf('tp-city-ev-') !== 0) return;
+        try { evRendered += map.queryRenderedFeatures({ layers: [r.id] }).length; } catch(e){}
+      });
       let rendered = 0, inSource = 0, slName = '–';
       _cityPinLayers.forEach(rec => {
         slName = rec.sl || '–';
@@ -12509,16 +12544,17 @@
           rendered += map.queryRenderedFeatures({ layers: [rec.id] }).length;
         } catch(e){}
         try {
-          inSource += map.querySourceFeatures(rec.src, { sourceLayer: rec.sl, filter: mine }).length;
+          inSource += map.querySourceFeatures(rec.src, { sourceLayer: rec.sl }).length;
         } catch(e){}
       });
       let labelsNow = 0;
-      try { labelsNow = map.queryRenderedFeatures({ layers: cityLabelLayerIds() })
-        .filter(f => f.properties && names.indexOf(f.properties.name) >= 0).length; } catch(e){}
+      try { labelsNow = map.queryRenderedFeatures({ layers: cityLabelLayerIds() }).length; } catch(e){}
       const miss = _cityMissingImages.length
         ? 'puuttuu: ' + _cityMissingImages.slice(0, 3).join(',')
         : 'ei puuttuvia';
-      return 'kuva ' + (img ? 'ok' : 'EI') + ' · ' + miss +
+      return 'kuva ' + (img ? 'ok' : 'EI') +
+             ' · lataus ' + (evImg ? 'ok' : 'EI') + '/' + evLayers + 'ta/' + evRendered + 'kpl' +
+             ' · ' + miss +
              ' · sidonta ' + (CITY_PIN_BIND_VISIBILITY ? 'päällä' : 'pois') +
 
              ' · ankkuri ' + (_cityPinAnchorInfo || '–') +
@@ -14452,7 +14488,7 @@
               id: 'charging-icons', type: 'symbol', source: 'charging-points',
               layout: {
                 'icon-image': ['case', ['get','available'], 'charging-green', 'charging-gray'],   // aina varsinainen ikoni
-                'icon-size': CHARGING_ICON_SIZE, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
+                'icon-size': chargingSizeExpr(), 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
               },
               paint: { 'icon-opacity': fadeInExpr(CHARGING_FADE) }
             }, labelsBeforeId());
@@ -14465,7 +14501,7 @@
                 filter: _chNone,
                 layout: {
                   'icon-image': ['case', ['get','available'], 'charging-green-hi', 'charging-gray-hi'],
-                  'icon-size': CHARGING_ICON_SIZE, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
+                  'icon-size': chargingSizeExpr(), 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
                 },
                 paint: { 'icon-opacity': fadeInExpr(CHARGING_FADE) }
               }, labelsBeforeId());
