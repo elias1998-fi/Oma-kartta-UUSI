@@ -5612,7 +5612,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-v';
+    const APP_BUILD   = '2026-08-01-w';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5699,7 +5699,18 @@
     // niissä kaupungeissa joissa sovelluksen kautta on pysäköintiä. Kun
     // zoomataan lähemmäs, merkit häipyvät ja tilalle häipyvät varsinaiset
     // pysäköintialueet, hallit ja latauspisteet.
-    const CITY_FADE = { start: 10, end: 11.5 };   // vaihtoalue
+    // Yksi häivytyksen kesto kaikille: pienempi luku = nopeampi vaihto.
+    const FADE_SPAN = 0.8;
+    const fadeRange = (start) => ({ start, end: start + FADE_SPAN });
+
+    // Kaupunkien P-merkit häipyvät POIS ja pysäköintihallit ESIIN samalla
+    // välillä zoomista 8 alkaen — ristiinhäivytys.
+    const CITY_FADE     = fadeRange(8);    // P-merkit ulos + hallit sisään
+    // Latauspisteet tulevat vasta myöhemmin, samalla nopeudella.
+    const CHARGING_FADE = fadeRange(10);
+    // Pysäköintialueiden polygonit (ennallaan zoomilla 10, nopeampi vaihto).
+    const AREA_FADE     = fadeRange(10);
+
     // ── Ikonien koot ────────────────────────────────────────────────
     // Yksi lähtöluku: latauspisteen halkaisija ruudulla. 12,0 px + 25 %.
     const CHARGING_ICON_PX = 15;
@@ -5707,23 +5718,26 @@
     const CHARGING_ICON_SIZE = CHARGING_ICON_PX / 64;        // 0.234375
     // Hallin ikoni on 64 px kangas @pixelRatio 2 = 32 px natiivi.
     const HALLI_ICON_PX = 21.6;                               // hallin täysi koko
-    // Halli kasvaa latauspisteen kokoisesta täyteen kokoonsa täsmälleen
-    // ristiinhäivytyksen aikana. 64 px kangas @pixelRatio 2 = 32 px natiivi.
+    // Halli alkaa PUOLIKKAANA zoomilla 8 ja kasvaa tasaisesti täyteen kokoonsa
+    // zoomiin HALLI_GROW_END mennessä. Kasvu on erillään häivytyksestä, joten
+    // sitä voi säätää ilman että vaihdon nopeus muuttuu.
+    const HALLI_GROW_END = 13;
     function halliSizeExpr(){
       return ['interpolate',['linear'],['zoom'],
-              CITY_FADE.start, CHARGING_ICON_PX / 32,
-              CITY_FADE.end,   HALLI_ICON_PX     / 32];
+              CITY_FADE.start, HALLI_ICON_PX / 2 / 32,
+              HALLI_GROW_END,  HALLI_ICON_PX     / 32];
     }
-    // HUOM: kaupunkimerkin koko ei ole karttatason ominaisuus — merkit ovat
-    // DOM-elementtejä (CITY_PIN_PX), ks. "KAUPUNKIEN P-MERKIT" alempana.
 
-    // Häipyy NÄKYVIIN zoomatessa (pysäköintikohteet).
-    function fadeInExpr(){
-      return ['interpolate',['linear'],['zoom'], CITY_FADE.start, 0, CITY_FADE.end, 1];
+    // Häipyy NÄKYVIIN zoomatessa. Oletuksena hallien väli; latauspisteille
+    // annetaan CHARGING_FADE.
+    function fadeInExpr(range){
+      const r = range || CITY_FADE;
+      return ['interpolate',['linear'],['zoom'], r.start, 0, r.end, 1];
     }
-    // Häipyy PIILOON zoomatessa (kaupunkimerkit).
-    function fadeOutExpr(){
-      return ['interpolate',['linear'],['zoom'], CITY_FADE.start, 1, CITY_FADE.end, 0];
+    // Häipyy PIILOON zoomatessa (kaupunkien P-merkit).
+    function fadeOutExpr(range){
+      const r = range || CITY_FADE;
+      return ['interpolate',['linear'],['zoom'], r.start, 1, r.end, 0];
     }
 
     // Kaupungit joissa on pysäköintiä sovelluksen kautta.
@@ -6128,8 +6142,8 @@
     const map = new mapboxgl.Map({
       container: 'map',
       style: _mapStyleUrl,
-      center: _sharedInitialCenter || [24.932096, 60.167370],
-      zoom:   _sharedInitialZoom   || 16,
+      center: _sharedInitialCenter || [25.35, 64.9],   // Suomen keskivaiheilla
+      zoom:   _sharedInitialZoom   || 4.2,   // tarkennetaan fitBoundsilla
       // minZoom 0 = koko maapallo mahtuu ruudulle (Mapboxin alaraja).
       minZoom: 0, maxZoom: 20,
       transformRequest, maxTileCacheSize: 50, fadeDuration: 100,
@@ -6363,28 +6377,24 @@
       return 9999;
     }
 
-    // Sovellus avautuu KÄYTTÄJÄN OMAAN SIJAINTIIN zoomilla 16. Kartan
-    // aloituskeskipiste on vain väliaikainen — se korvataan heti kun paikannus
-    // vastaa. Jos käyttäjä on jo ehtinyt liikuttaa karttaa tai jaettu linkki
-    // määrää sijainnin, siirtoa ei tehdä.
-    const OPEN_AT_LOCATION_ZOOM = 16;
-    (function centerOnUserAtStart(){
+    // Sovellus avautuu näkymään jossa KOKO SUOMI on kerralla ruudulla.
+    // (Aiempi automaattinen keskitys käyttäjän sijaintiin on poistettu —
+    // sijaintinappi oikeassa yläkulmassa toimii ennallaan.)
+    const FINLAND_BOUNDS = [[19.0, 59.6], [31.7, 70.2]];   // [lounas, koillinen]
+    (function fitFinlandAtStart(){
       if (_sharedInitialCenter) return;          // jaettu linkki voittaa
-      if (!navigator.geolocation) return;
       let moved = false;
       const markMoved = () => { moved = true; };
       map.once('dragstart', markMoved);
       map.once('zoomstart', markMoved);
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (moved) return;
-          const c = [pos.coords.longitude, pos.coords.latitude];
-          try { userLocation = { lon: c[0], lat: c[1] }; } catch(e){}
-          map.jumpTo({ center: c, zoom: OPEN_AT_LOCATION_ZOOM });
-        },
-        () => {},                                 // kielto tai virhe → oletusnäkymä
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
-      );
+      const fit = () => {
+        if (moved) return;
+        try { map.fitBounds(FINLAND_BOUNDS, { padding: 24, duration: 0 }); } catch(e){}
+      };
+      if (map.loaded()) fit(); else map.once('load', fit);
+      // Ruudun koko voi olla vielä väärä ensimmäisellä kierroksella (mobiilin
+      // osoiterivi), joten sovitus tehdään vielä kerran kun kartta on asettunut.
+      map.once('idle', () => { if (!moved) fit(); });
     })();
 
     map.on('load', () => {
@@ -9477,7 +9487,7 @@
       // Zoomin 13 arvo toistetaan vaihtoalueen yläpäässä, jotta 11,5–13
       // pysyy tasaisena.
       const base = S[key];
-      return [CITY_FADE.start, 0, CITY_FADE.end, base[1]].concat(base);
+      return [AREA_FADE.start, 0, AREA_FADE.end, base[1]].concat(base);
     }
     function hlOpacity(key){
       return ['interpolate', ['linear'], ['zoom']].concat(hlStops(key));
@@ -12119,7 +12129,8 @@
           source: L.source,
           'source-layer': L['source-layer'],
           layout,
-          paint: {}
+          // P-merkit häipyvät POIS samalla kun hallit häipyvät esiin.
+          paint: { 'icon-opacity': fadeOutExpr() }
         };
         if (L.minzoom !== undefined) def.minzoom = L.minzoom;
         if (L.maxzoom !== undefined) def.maxzoom = L.maxzoom;
@@ -14103,7 +14114,7 @@
                 'icon-image': ['case', ['get','available'], 'charging-green', 'charging-gray'],   // aina varsinainen ikoni
                 'icon-size': CHARGING_ICON_SIZE, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
               },
-              paint: { 'icon-opacity': fadeInExpr() }
+              paint: { 'icon-opacity': fadeInExpr(CHARGING_FADE) }
             }, labelsBeforeId());
             // Korostuskerros p-merkin ALLA olevalle latauspisteelle: suurennettu,
             // punareunainen ikoni (suodatinpohjainen, kuten hallissa).
@@ -14116,7 +14127,7 @@
                   'icon-image': ['case', ['get','available'], 'charging-green-hi', 'charging-gray-hi'],
                   'icon-size': CHARGING_ICON_SIZE, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
                 },
-                paint: { 'icon-opacity': fadeInExpr() }
+                paint: { 'icon-opacity': fadeInExpr(CHARGING_FADE) }
               }, labelsBeforeId());
             }
             if (map.getLayer('charging-hi-icon')) moveBelowLabels('charging-hi-icon');
