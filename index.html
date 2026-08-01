@@ -5608,7 +5608,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-01-d';
+    const APP_BUILD   = '2026-08-01-e';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5665,6 +5665,31 @@
     // centre puts the marker right on it.
     const SELECT_ZOOM = 15.5;
 
+    // ══ TASOJÄRJESTYS ══════════════════════════════════════════════════
+    // Kaikki sovelluksen omat karttatasot lisätään taustakartan NIMITASOJEN
+    // ALLE. Aiemmin ne menivät kaiken päälle (addLayer ilman beforeId:tä),
+    // jolloin pysäköintipolygonit ja ikonit piirtyivät paikannimien PÄÄLLE ja
+    // esim. "Helsinki" näytti käyttäytyvän oudosti. Nyt taustakartan nimet
+    // piirtyvät aina päällimmäisenä eli täsmälleen kuten Mapboxin oletus —
+    // nimien ilmestymiseen ja ulkoasuun ei kosketa koodista lainkaan, ne
+    // säädetään Mapbox Studiossa.
+    function labelsBeforeId(){
+      try {
+        const layers = map.getStyle().layers || [];
+        for (let i = 0; i < layers.length; i++) {
+          const l = layers[i];
+          if (l.type === 'symbol' && l.layout && l.layout['text-field']) return l.id;
+        }
+      } catch(e){}
+      return undefined;   // ei nimitasoja → päällimmäiseksi kuten ennen
+    }
+    // moveLayer ilman beforeId:tä nostaisi tason kaiken päälle; tämä pitää sen
+    // omien tasojen kärjessä mutta yhä nimien alla.
+    function moveBelowLabels(id){
+      if (!map.getLayer(id)) return;
+      try { map.moveLayer(id, labelsBeforeId()); } catch(e){ try { map.moveLayer(id); } catch(e2){} }
+    }
+
     // ══ KAUPUNKIMERKIT JA RISTIINHÄIVYTYS ══════════════════════════════
     // Kaukaa katsottaessa kartalla näkyy kaupunkien nimien alla P-merkki
     // niissä kaupungeissa joissa sovelluksen kautta on pysäköintiä. Kun
@@ -5707,17 +5732,30 @@
     }
 
     // ── Merkin sijainti kaupungin nimen alla ────────────────────────────
-    // PUHDAS POHJA. Aiemmat yritykset (arvattu zoom-ramppi, sitten ajonaikainen
-    // mittaus queryRenderedFeaturesilla) poistettu kokonaan — molemmat tekivät
-    // sijainnista epävakaan. Nyt tässä on vain kaksi lukua eikä mitään logiikkaa:
-    // merkin yläreuna on CITY_PIN_DY pikseliä nimen ankkuripisteen alapuolella,
-    // aina, kaikilla zoom-tasoilla.
-    const CITY_PIN_DY  = 7;    // pystyrako nimen alle
-    const CITY_PIN_GAP = 2;    // rako P-merkin ja latausmerkin välissä
+    // Taustakartassa on KAKSI eri tilannetta, ja ne selittävät miksi kiinteä
+    // siirto ei koskaan tuottanut vakiorakoa:
+    //   zoom < CITY_DOT_ZOOM : nimen alla on kartan oma pieni pallura, ja
+    //                          NIMI on ankkuripisteen YLÄpuolella
+    //   zoom >= CITY_DOT_ZOOM: palluraa ei ole, ja nimi on keskitetty
+    //                          ankkuripisteeseen
+    // Siirto on siksi porrastettu samasta kohdasta kuin kartan oma vaihdos.
+    // Molemmissa tilanteissa lasketaan sama asia: nimen alareunan sijainti
+    // ankkurista + haluttu rako.
+    const CITY_LABEL_GAP = 10;   // ← rako nimen alareunasta merkin yläreunaan
+    const CITY_DOT_ZOOM  = 8;    // zoom jolla kartan oma pallura katoaa
+    // Nimen ALAREUNA ankkuripisteestä (positiivinen = alaspäin). Nämä ovat
+    // arvio kartan omasta tekstiasettelusta — SÄÄDÄ NÄITÄ jos rako heittää:
+    const CITY_NAME_BOTTOM_DOT   = -6;   // pallura näkyvissä, nimi ankkurin yllä
+    const CITY_NAME_BOTTOM_PLAIN =  8;   // nimi keskitetty ankkuriin
+    const CITY_PIN_GAP = 2;              // rako P-merkin ja latausmerkin välissä
+
     function cityTranslate(side){          // side: -1 vasen, 0 keskellä, +1 oikea
       const w  = cityPinPxAt(CITY_FADE.start) * 76 / 64;   // merkki kehyksineen
-      const dx = side * (w + CITY_PIN_GAP) / 2;
-      return [Math.round(dx * 10) / 10, CITY_PIN_DY];
+      const dx = Math.round(side * (w + CITY_PIN_GAP) / 2 * 10) / 10;
+      return ['step', ['zoom'],
+              ['literal', [dx, CITY_NAME_BOTTOM_DOT   + CITY_LABEL_GAP]],
+              CITY_DOT_ZOOM,
+              ['literal', [dx, CITY_NAME_BOTTOM_PLAIN + CITY_LABEL_GAP]]];
     }
 
     // Häipyy NÄKYVIIN zoomatessa (pysäköintikohteet).
@@ -9278,7 +9316,7 @@
               '#1266f1'
             ]
           }
-        });
+        }, labelsBeforeId());
         // Base line layer
         map.addLayer({ id:'master-poly-line', type:'line', source:'master-polygons',
           paint:{ 'line-width': 1.0, 'line-opacity': hlOpacity('baseLine'),
@@ -9290,22 +9328,22 @@
               '#0B49D0'
             ]
           }
-        });
+        }, labelsBeforeId());
         // Hover fill — red, toggled via setFilter
         map.addLayer({ id:'master-poly-hover-fill', type:'fill', source:'master-polygons',
           paint:{ 'fill-color':'#1266f1', 'fill-opacity': hlOpacity('hoverFill') },
           filter:['==', ['get','id'], '__none__']
-        });
+        }, labelsBeforeId());
         // Hover outline — on the red hovered area, toggled via setFilter
         map.addLayer({ id:'master-poly-hover-line', type:'line', source:'master-polygons',
           paint:{ 'line-color':'#0B49D0', 'line-width': 2.5, 'line-opacity': hlOpacity('hoverLine') },
           filter:['==', ['get','id'], '__none__']
-        });
+        }, labelsBeforeId());
         // Group highlight line — thick dark, toggled via setFilter
         map.addLayer({ id:'master-poly-group-line', type:'line', source:'master-polygons',
           paint:{ 'line-color':'#0C0243', 'line-width': 1.25, 'line-opacity': hlOpacity('groupLine') },
           filter:['==', ['get','id'], '__none__']
-        });
+        }, labelsBeforeId());
         // Same-group fill highlight — 50% opacity, same colors as base, toggled via setFilter
         map.addLayer({ id:'master-poly-group-fill', type:'fill', source:'master-polygons',
           paint:{ 'fill-opacity': hlOpacity('groupFill'),
@@ -9330,8 +9368,8 @@
         // The polygon layers were just added, which may have placed them on
         // top of the halli-icons layer. Promote halli icons to the very top
         // so the parking-hall pins always sit above the area polygons.
-        if (map.getLayer('halli-icons')) map.moveLayer('halli-icons');
-        if (map.getLayer('halli-hi-icon')) map.moveLayer('halli-hi-icon');
+        if (map.getLayer('halli-icons')) moveBelowLabels('halli-icons');
+        if (map.getLayer('halli-hi-icon')) moveBelowLabels('halli-hi-icon');
 
         // Helper: centroid for polygon/multipolygon
         function getCentroid(geom) {
@@ -9387,8 +9425,8 @@
         // kerros (polygonit/tekstitarrat) piirry ison ikonin päälle/läpi, ja
         // jotta iso hi-ikoni peittää pienen perusikonin.
         if (hId != null) {
-          if (map.getLayer('halli-icons'))   { try { map.moveLayer('halli-icons');   } catch(e){} }
-          if (map.getLayer('halli-hi-icon')) { try { map.moveLayer('halli-hi-icon'); } catch(e){} }
+          if (map.getLayer('halli-icons'))   { try { moveBelowLabels('halli-icons');   } catch(e){} }
+          if (map.getLayer('halli-hi-icon')) { try { moveBelowLabels('halli-hi-icon'); } catch(e){} }
         }
         _hiHalliId = hId;
       }
@@ -9396,8 +9434,8 @@
         const sel = (cId != null) ? ['==', ['get','id'], cId] : ['==', ['get','id'], '__tp_none__'];
         if (map.getLayer('charging-hi-icon')) { try { map.setFilter('charging-hi-icon', sel); } catch(e){} }
         if (cId != null) {
-          if (map.getLayer('charging-icons'))   { try { map.moveLayer('charging-icons');   } catch(e){} }
-          if (map.getLayer('charging-hi-icon')) { try { map.moveLayer('charging-hi-icon'); } catch(e){} }
+          if (map.getLayer('charging-icons'))   { try { moveBelowLabels('charging-icons');   } catch(e){} }
+          if (map.getLayer('charging-hi-icon')) { try { moveBelowLabels('charging-hi-icon'); } catch(e){} }
         }
         _hiChargingId = cId;
       }
@@ -9748,7 +9786,7 @@
       if (map.getZoom() < 13 || !map.getLayer('halli-icons')) return leaveHalli();
       const hpt = map.project(map.getCenter()); hpt.y += 0;
       const hr = 1;
-      const hhits = map.queryRenderedFeatures([[hpt.x-hr, hpt.y-hr],[hpt.x+hr, hpt.y+hr]], { layers:['halli-icons'] });
+      const hhits = map.queryRenderedFeatures([[hpt.x-hr, hpt.y-hr],[hpt.x+hr, hpt.y+hr]], { layers:['halli-icons'] }, labelsBeforeId());
       if (!hhits.length) return leaveHalli();
       let best = hhits[0], bestD = Infinity;
       hhits.forEach(ff => { const pt = map.project(ff.geometry.coordinates); const dx = pt.x-hpt.x, dy = pt.y-hpt.y, d = dx*dx + dy*dy; if (d < bestD) { bestD = d; best = ff; } });
@@ -10235,8 +10273,8 @@
         map.getSource('halli-points').setData(geojson);
         // Make sure the icon layer stays on top of the polygon layers even
         // if polygons were re-added after the halli layer was first created.
-        if (map.getLayer('halli-icons')) map.moveLayer('halli-icons');
-        if (map.getLayer('halli-hi-icon')) map.moveLayer('halli-hi-icon');
+        if (map.getLayer('halli-icons')) moveBelowLabels('halli-icons');
+        if (map.getLayer('halli-hi-icon')) moveBelowLabels('halli-hi-icon');
         return;
       }
       map.addSource('halli-points', { type:'geojson', data: geojson });
@@ -10252,7 +10290,7 @@
           'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
         },
         paint: { 'icon-opacity': fadeInExpr() }
-      });
+      }, labelsBeforeId());
       // Korostuskerros p-merkin ALLA olevalle hallille: suurennettu,
       // punareunainen ikoni (suodatin rajaa vain valittuun featureen; feature-
       // state ei toimi icon-size:ssa, joten käytetään suodatinta).
@@ -10260,7 +10298,7 @@
       // Promote the halli icons to the very top so they always sit on
       // top of the parking-area polygons (otherwise the polygon fills
       // partially cover the icons at higher zoom levels).
-      map.moveLayer('halli-icons');
+      moveBelowLabels('halli-icons');
       // Suurennettu, punareunainen ikoni valitulle hallille (ikonien PÄÄLLE).
       if (!map.getLayer('halli-hi-icon')) {
         map.addLayer({
@@ -10272,9 +10310,9 @@
             'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
           },
           paint: { 'icon-opacity': fadeInExpr() }
-        });
+        }, labelsBeforeId());
       }
-      if (map.getLayer('halli-hi-icon')) map.moveLayer('halli-hi-icon');
+      if (map.getLayer('halli-hi-icon')) moveBelowLabels('halli-hi-icon');
       // Garages are paid parking → follow the paid/free + charging-only filters.
       updateHalliVisibility();
 
@@ -11906,7 +11944,7 @@
               'icon-translate': cityTranslate(side),
               'icon-translate-anchor': 'viewport'
             }
-          });
+          }, labelsBeforeId());
         });
       });
     }
@@ -13773,7 +13811,7 @@
                 'icon-size': CHARGING_ICON_SIZE, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
               },
               paint: { 'icon-opacity': fadeInExpr() }
-            });
+            }, labelsBeforeId());
             // Korostuskerros p-merkin ALLA olevalle latauspisteelle: suurennettu,
             // punareunainen ikoni (suodatinpohjainen, kuten hallissa).
             const _chNone = ['==', ['get','id'], '__tp_none__'];
@@ -13786,9 +13824,9 @@
                   'icon-size': CHARGING_ICON_SIZE, 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'icon-anchor': 'center'
                 },
                 paint: { 'icon-opacity': fadeInExpr() }
-              });
+              }, labelsBeforeId());
             }
-            if (map.getLayer('charging-hi-icon')) map.moveLayer('charging-hi-icon');
+            if (map.getLayer('charging-hi-icon')) moveBelowLabels('charging-hi-icon');
             // Tap a charging marker → leave filter view, zoom to 16 centred on
             // the station, and show its details in the sheet (like halli markers).
             // Guarded so a dark-mode style switch re-adding the layer doesn't
@@ -13817,8 +13855,8 @@
             }
           }
           setChargingVisibility(showEvCharging);
-          if (map.getLayer('charging-icons')) map.moveLayer('charging-icons');
-          if (map.getLayer('charging-hi-icon')) map.moveLayer('charging-hi-icon');
+          if (map.getLayer('charging-icons')) moveBelowLabels('charging-icons');
+          if (map.getLayer('charging-hi-icon')) moveBelowLabels('charging-hi-icon');
         });
       });
           });
