@@ -3315,6 +3315,16 @@
       z-index: 6;
       pointer-events: none;
     }
+    /* KIINNITETTY TILA: suodatinnäkymästä poistuttaessa kortti ei enää ratsasta
+       sheetin mukana vaan jää paikalleen näytölle. Ankkuri irrotetaan sheetistä
+       (fixed) ja sen bottom lasketaan JS:ssä niin, että kortin YLÄREUNA osuu
+       AH_PIN_TOP-korkeudelle näytön alareunasta — samalle riville jolla
+       suodatinsheetin yläreuna on alimmalla tasollaan. */
+    #ajanhetki-anchor.pinned {
+      position: fixed;
+      bottom: 0;
+      z-index: 30;
+    }
 
     /* ── The morphing card ────────────────────────────────────────────────
        ONE element. Growing and shrinking is a genuine morph: the card animates
@@ -5685,7 +5695,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-18-f';
+    const APP_BUILD   = '2026-08-18-g';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -15221,6 +15231,7 @@
       const _s = document.getElementById('bottom-sheet'); if (_s) _s.classList.remove('tp-gone');
       const _b = document.getElementById('btn-container'); if (_b) _b.classList.remove('tp-gone');
       filterMode=true;
+      if (typeof unpinAjanhetkiCard === 'function') unpinAjanhetkiCard();
       document.body.classList.add('filter-mode');
       filterCloseBtn.classList.add('visible');
       // Hide GPS warning + zoom indicator in filter view
@@ -15291,14 +15302,15 @@
       }
       if (refTimeManual) ajanhetkiDismissed = false;
       updateAjanhetkiPillVisibility();
-      // Session intro (see ajanhetkiIntroShown): only when the card actually
-      // ended up on screen — if it stayed hidden (e.g. zoom < 13), the intro
-      // is saved for the next qualifying close instead of burning silently.
+      // Ajanhetkeä säädettäessä kortti jää suodattimen sulkeuduttua näkyviin
+      // VÄLIKOKOISENA ja KIINNITETTYNÄ: se ei enää ratsasta sheetin mukana eikä
+      // avaudu isona. Kiinnitys tehdään vasta kun kortti on näkyvissä ja
+      // välikoossa, jotta korkeusmittaus osuu.
       const _ahCard = document.getElementById('ajanhetki-card');
-      if (refTimeManual && !ajanhetkiIntroShown && _ahCard && _ahCard.classList.contains('visible')) {
-        ajanhetkiIntroShown = true;
+      if (refTimeManual && _ahCard && _ahCard.classList.contains('visible')) {
         openAjanhetkiFloat();          // expands (medium) + refreshes value/drum
-        setAjanhetkiSize('large');     // ...and straight on to the large size
+        setAjanhetkiSize('medium');
+        pinAjanhetkiCard();
       }
       checkParking();
       // Suodatinnäkymästä palataan joko valittuun kohteeseen tai puhtaaseen
@@ -16155,6 +16167,8 @@
     function applyAjanhetkiFade(){
       const el = document.getElementById('ajanhetki-anchor');
       if (!el) return;
+      // Kiinnitettynä kortti ei seuraa sheettiä eikä siis myöskään häivy sen mukana.
+      if (ajanhetkiPinned) { el.style.opacity = '1'; return; }
       const top = sheet.getBoundingClientRect().top;
       if (top === _ahLastTop) return;
       _ahLastTop = top;
@@ -16181,6 +16195,11 @@
     // The card is a single element that animates its own width/height/radius
     // between the three shapes. CSS cannot transition to height:auto, so the
     // target box is measured here and written as px.
+    // Kortin yläreunan korkeus näytön alareunasta kiinnitetyssä tilassa. Sama
+    // 70 px jolla suodatinsheetin yläreuna on alimmalla tasollaan
+    // (sheet.clientHeight - 70), joten kortti jää täsmälleen sille riville.
+    const AH_PIN_TOP = 70;
+    let ajanhetkiPinned = false;
     const AH_PILL_H = 38;    // pill height, matches #ajanhetki-pill
     const AH_PAD_B  = 12;    // #ajanhetki-float bottom padding
     const AH_MAX_W  = 480;   // widest the expanded card ever gets
@@ -16222,6 +16241,26 @@
         m.card.style.height = ((ajanhetkiSize === 'large') ? m.hLarge : m.hMedium) + 'px';
       }
     }
+    // Kiinnitä kortti näytölle välikoossa niin, että sen yläreuna on
+    // AH_PIN_TOP:n korkeudella. Ankkurin bottom = 70 - kortin korkeus, eli
+    // kortin alareuna jää ruudun alapuolelle ja ylälaita jää näkyviin; ylöspäin
+    // vetämällä (size-large) kortti kasvaa näkyviin normaalisti.
+    function pinAjanhetkiCard(){
+      const anchor = document.getElementById('ajanhetki-anchor');
+      const m = ajanhetkiMetrics();
+      if (!anchor || !m) return;
+      ajanhetkiPinned = true;
+      anchor.classList.add('pinned');
+      anchor.style.opacity = '1';
+      anchor.style.bottom = (AH_PIN_TOP - m.hMedium) + 'px';
+    }
+    function unpinAjanhetkiCard(){
+      const anchor = document.getElementById('ajanhetki-anchor');
+      ajanhetkiPinned = false;
+      if (!anchor) return;
+      anchor.classList.remove('pinned');
+      anchor.style.bottom = '';
+    }
     function setAjanhetkiSize(sz){
       const card = document.getElementById('ajanhetki-card');
       if (!card) return;
@@ -16245,7 +16284,9 @@
       // jolloin pilleri jäisi kellumaan ruudun alalaitaan — siksi se näkyy vain
       // kun sheet on auki. (window.__tpSheetOpen, ei suora sheetOpen: tämä
       // funktio on lähdekoodissa ennen sen let-esittelyä.)
-      const sheetUp = !!window.__tpSheetOpen;
+      // Kiinnitetyssä tilassa kortti on irti sheetistä, joten sheetin ei tarvitse
+      // olla auki.
+      const sheetUp = !!window.__tpSheetOpen || ajanhetkiPinned;
       const active = sheetUp && zoomOk && !ajanhetkiDismissed && showFreeParking && !filterMode && !hoveredChargingId && !(typeof hoveredHalliId !== 'undefined' && hoveredHalliId);
       card.classList.toggle('visible', active);
       // The © OpenStreetMap credit shares the pill's spot: it stays visible on
@@ -16304,6 +16345,7 @@
       if (cl) cl.addEventListener('click', (e) => {
         e.stopPropagation();
         ajanhetkiDismissed = true;
+        unpinAjanhetkiCard();
         collapseAjanhetkiCard();
         resetRefTime();
       });
@@ -18576,6 +18618,12 @@
       const wasOpen = sheetOpen;
       sheetOpen = true;
       window.__tpSheetOpen = true;
+      // Kohde valittu → kortti irrotetaan kiinnityksestä ja ratsastaa taas
+      // sheetin yläreunassa kuten ennenkin.
+      if (typeof unpinAjanhetkiCard === 'function' && ajanhetkiPinned) {
+        unpinAjanhetkiCard();
+        collapseAjanhetkiCard();
+      }
       if (!wasOpen) sheetFadeArmed = true;
       btnContainer.classList.remove('hidden');
       btnContainer.style.opacity = '';
