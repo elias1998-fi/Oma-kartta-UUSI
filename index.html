@@ -3308,7 +3308,7 @@
        turva-alue jää tämän alapuolelle. */
     #time-sheet {
       position: fixed; left: 0; right: 0; bottom: 0;
-      height: 70px;   /* yläreuna tasan 70 px näytön alareunasta */
+      height: 80px;   /* yläreuna 80 px näytön alareunasta (oli 70) */
       background: #fff;
       border-radius: 16px 16px 0 0;
       box-shadow: 0 -2px 16px rgba(0,0,0,0.18);
@@ -3325,33 +3325,41 @@
       background: #eeeef1; color: #6b6b70; font-size: 15px; line-height: 1;
       cursor: pointer; padding: 0;
     }
-    /* Vasen lohko: teksti ennen rullausta, valittu aika sen jälkeen. */
-    #time-sheet-label {
-      position: absolute; top: 0; bottom: 0; left: 0; width: 132px; z-index: 2;
-      display: flex; align-items: center; padding-left: 14px;
-      background: #6b6b70; color: #fff;
-      font-size: 14px; font-weight: bold;
+    /* Rulla on OMA ELEMENTTINSÄ sheetillä, ei täytä koko sheettiä:
+       15 px korkea kisko, pystysuunnassa sheetin keskellä. */
+    #time-rail {
+      position: absolute; left: 0; right: 0; top: 36px; height: 15px;
+      overflow: hidden;
     }
-    #time-sheet-label.set { background: #0C0243; }
+    /* Teksti on kiskon POHJALLA (z-index 1). Kohdat ovat peittäviä ja liukuvat
+       sen päälle rullattaessa, jolloin teksti jää piiloon. */
+    #time-sheet-label {
+      position: absolute; top: 0; left: 0; width: 126px; height: 15px; z-index: 1;
+      display: flex; align-items: center; padding-left: 14px;
+      color: #4a4a50; font-size: 12px; font-weight: bold; white-space: nowrap;
+    }
+    #time-sheet-label.set { color: #0C0243; }
     /* Rulla: vaakavieritys, napsautus puolen tunnin kohtiin. */
     #time-strip {
-      position: absolute; top: 0; bottom: 0; left: 0; right: 0;
+      position: absolute; top: 0; left: 0; right: 0; height: 15px; z-index: 2;
       overflow-x: auto; overflow-y: hidden;
       display: flex; align-items: stretch;
       scroll-snap-type: x mandatory;
       -webkit-overflow-scrolling: touch;
       scrollbar-width: none;
+      background: transparent;
     }
     #time-strip::-webkit-scrollbar { display: none; }
     .time-tick {
       flex: 0 0 86px; scroll-snap-align: start;
       position: relative;
       display: flex; align-items: center; justify-content: center;
-      font-size: 15px; color: #4a4a50;
+      font-size: 12px; color: #4a4a50; line-height: 15px;
+      background: #fff;                      /* peittää alla olevan tekstin */
       border-left: 1px solid #e2e2e6;
     }
     .time-tick.past { color: #2e9e4f; font-weight: bold; }
-    .time-tick .tick-day { position: absolute; top: 6px; font-size: 11px; color: #9a9aa0; }
+    .time-tick .tick-day { display: none; }
 
     /* ── Ajanhetki pill + floating window ─────────────────────────────── */
     /* Anchor line sitting just above the sheet's top edge. It's a child of
@@ -5742,8 +5750,10 @@
   </div>
 
   <div id="time-sheet">
-    <div id="time-strip"></div>
-    <div id="time-sheet-label">Säädä ajanhetkeä</div>
+    <div id="time-rail">
+      <div id="time-sheet-label">Säädä ajanhetkeä</div>
+      <div id="time-strip"></div>
+    </div>
     <button id="time-sheet-close" aria-label="Sulje ajanhetki">✕</button>
   </div>
 
@@ -5755,7 +5765,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-18-h';
+    const APP_BUILD   = '2026-08-18-i';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -16221,6 +16231,7 @@
     // ja napsahtaa puolen tunnin kohtiin; ensimmäinen kohta on nykyhetki, sitä
     // seuraavat tasa- ja puolitunnit (17:38 → 18:00 → 18:30 → …).
     const TIME_TICK_W = 86;     // yhden kohdan leveys px (sama kuin CSS:ssä)
+    const TIME_LABEL_W = 126;   // "Säädä ajanhetkeä" -tekstin varaama tila (sama kuin CSS:ssä)
     let _timeSheetBuilt = false;
     let _timeSheetTicks = [];   // minuuttia keskiyöstä, indeksi = kohdan numero
     let _timeScrollRAF = null;
@@ -16257,8 +16268,9 @@
       // Viimeisen kohdan on yllettävä osoittimen kohdalle → tyhjää loppuun.
       html += '<div style="flex:0 0 100%"></div>';
       strip.innerHTML = html;
-      // Vasemman lohkon leveys varataan sisennyksenä, jotta kohta 0 osuu sen reunaan.
-      strip.style.paddingLeft = (document.getElementById('time-sheet-label').offsetWidth || 132) + 'px';
+      // Tekstin leveys varataan sisennyksenä, jotta kohta 0 osuu sen oikeaan
+      // reunaan ja kohdat liukuvat tekstin päälle vasta rullattaessa.
+      strip.style.paddingLeft = TIME_LABEL_W + 'px';
       _timeSheetBuilt = true;
     }
     // Valittu kohta = se joka on vierityksen alussa (vasemman lohkon oikea reuna).
@@ -16276,11 +16288,13 @@
         el.classList.toggle('past', (+el.dataset.i) < idx);
       });
       if (idx === 0) {
-        if (lab) { lab.textContent = 'Säädä ajanhetkeä'; lab.classList.remove('set'); }
+        if (lab) { lab.textContent = 'Säädä ajanhetkeä'; lab.classList.remove('set'); lab.style.visibility = ''; }
         if (refTimeManual) resetRefTime();
         return;
       }
-      if (lab) { lab.textContent = timeSheetLabelFor(_timeSheetTicks[idx]); lab.classList.add('set'); }
+      // Rullattaessa kohdat peittävät tekstin; piilotetaan se myös varmuuden
+      // vuoksi, ettei se kurkista kohtien välistä.
+      if (lab) { lab.style.visibility = 'hidden'; lab.classList.add('set'); }
       refTimeManual = true;
       refMinutes = _timeSheetTicks[idx];
       refreshRefFilter();
