@@ -4263,6 +4263,14 @@
           <div class="settings-item-text"><div class="settings-item-label">Viimeisin karttavirhe</div></div>
           <div class="about-version" id="about-maperror" style="max-width:60%;text-align:right;word-break:break-word;">–</div>
         </div>
+        <!-- Toimintonapin TODELLINEN koko ruudulla. Lisätty 18.8. koska CSS
+             sanoo 46 × 347 px mutta napin koko näytti silti eroavan iOS:n
+             omasta painikkeesta; tämä kertoo mitattuna mistä ero tulee.
+             Poistetaan kun asia on ratkaistu. -->
+        <div class="settings-item" style="cursor:default;">
+          <div class="settings-item-text"><div class="settings-item-label">Toimintonapin koko</div></div>
+          <div class="about-version" id="about-btnsize" style="max-width:60%;text-align:right;">–</div>
+        </div>
         <div class="settings-item" onclick="confirmOpenExternal('https://totalparking.fi')">
           <div class="settings-item-text"><div class="settings-item-label">Yrityksen kotisivut</div></div>
           <div class="settings-item-chevron">›</div>
@@ -5681,7 +5689,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-18-c';
+    const APP_BUILD   = '2026-08-18-d';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -13433,6 +13441,22 @@
       if (_ml) _ml.textContent = window.TP_MAP_LANG_DIAG || '–';
       const _me = document.getElementById('about-maperror');
       if (_me) _me.textContent = window.TP_LAST_MAP_ERROR || '–';
+      // Mitataan nappi getBoundingClientRectillä: se kertoo todellisen
+      // renderöidyn koon eikä CSS:ään kirjoitettua arvoa. Mukaan näytön
+      // leveys ja pikselisuhde, jotta mittaa voi verrata suoraan
+      // kuvakaappauksesta laskettuun (laitepikselit / dpr).
+      const _bs = document.getElementById('about-btnsize');
+      if (_bs) {
+        const _ab = document.getElementById('action-btn');
+        if (_ab) {
+          const r = _ab.getBoundingClientRect();
+          const rnd = (v) => Math.round(v * 10) / 10;
+          _bs.textContent = rnd(r.width) + ' × ' + rnd(r.height) + ' px · näyttö '
+            + window.innerWidth + ' px · dpr ' + (window.devicePixelRatio || 1);
+        } else {
+          _bs.textContent = 'nappia ei löytynyt';
+        }
+      }
       document.getElementById('about-detail').classList.add('open');
     }
     function closeAboutSettings() {
