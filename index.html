@@ -1597,17 +1597,19 @@
     #sheet-nav-row {
       display: none;
       position: absolute;
-      top: calc(80vh - 73px - env(safe-area-inset-bottom));
+      /* 73 → 68 px: rivi laskee saman 5 px kuin toimintonapin yläreuna,
+         jolloin väli napin yläpuolella pysyy entisenä. */
+      top: calc(80vh - 68px - env(safe-area-inset-bottom));
       left: 20px;
       right: 20px;
-      height: 54px;
+      height: 53px;
       gap: 10px;
       z-index: 5;
     }
     #sheet-nav-row.visible { display: flex; }
     #sheet-nav-btn, #sheet-share-btn {
       flex: 1;                       /* equal width */
-      height: 54px;
+      height: 53px;                  /* sama kuin #action-btn */
       background: #f3f4f6;
       border: 2px solid #0C0243;
       border-radius: 999px;
@@ -2135,12 +2137,12 @@
     
     #action-btn { 
       width: 100%; 
-      /* Alkuperäinen korkeus oli 58 px; siitä on pyynnöstä otettu pois 7,5 px.
+      /* Alkuperäinen korkeus oli 58 px; siitä on pyynnöstä otettu pois 5 px.
          Alareuna pysyy paikallaan, koska #btn-container on kiinni näytön
          alareunassa ja napin alle jää vain sen padding-bottom; napin YLÄreuna
-         laskeutuu 7,5 px. Sheetin sisältö seuraa automaattisesti, koska
+         laskeutuu 5 px. Sheetin sisältö seuraa automaattisesti, koska
          perustaso lasketaan actionBtnTopOnScreen():stä. */
-      height: 50.5px; 
+      height: 53px; 
       border: none; 
       border-radius: 999px; 
       font-size: 17px; 
@@ -5683,7 +5685,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-18-e';
+    const APP_BUILD   = '2026-08-18-f';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -10314,9 +10316,10 @@
         // In filter view, close it first so the user returns to the normal map
         // with the P-marker landing on the selected area.
         if (filterMode) closeFilter();
-        // Always settle on the area's centre at a fixed zoom, so the P-marker
-        // (which sits at the map centre) lands squarely on the selected area.
-        map.flyTo({ center:[lng,lat], zoom: SELECT_ZOOM, duration: 800 });
+        // Keskitetään valittuun alueeseen, mutta ZOOM SÄILYY ENNALLAAN:
+        // kohteesta toiseen klikatessa näkymä vain siirtyy. (Aiemmin tässä
+        // oli zoom: SELECT_ZOOM, joka nykäisi kartan aina samaan zoomiin.)
+        map.flyTo({ center:[lng,lat], duration: 800 });
       }
       openAreaSheet();
     });
@@ -10552,7 +10555,7 @@
           if (typeof updateAjanhetkiPillVisibility === 'function') updateAjanhetkiPillVisibility();
           showHalliInfo(e);
           const coords = e.features[0].geometry.coordinates;
-          map.flyTo({ center: coords, zoom: SELECT_ZOOM, duration: 800 });
+          map.flyTo({ center: coords, duration: 800 });   // zoom ennallaan
           openAreaSheet();
         });
         map.on('mouseleave', 'halli-icons', () => {
@@ -14252,7 +14255,7 @@
                 if (typeof updateAjanhetkiPillVisibility === 'function') updateAjanhetkiPillVisibility();
                 scheduleHitRefetch();   // freshen this station's status on tap
                 showChargingInSheet(ft.properties);
-                if(coords) map.flyTo({ center: coords, zoom: SELECT_ZOOM, duration: 800 });
+                if(coords) map.flyTo({ center: coords, duration: 800 });   // zoom ennallaan
                 openAreaSheet();
               });
             }
