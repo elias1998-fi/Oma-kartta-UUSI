@@ -3302,11 +3302,65 @@
     .drum-scroll-zone:active { cursor: grabbing; }
     #drum-canvas { display: block; width: 52px; height: 80px; }
 
+    /* ── Ajanhetki-sheet: vaakarulla näytön alalaidassa ────────────────
+       Paljastuu suodatinsheetin alta kun suodatin suljetaan ja ajanhetki on
+       säädetty. Yläreuna tasan TIME_SHEET_TOP (70 px) näytön alareunasta;
+       turva-alue jää tämän alapuolelle. */
+    #time-sheet {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      height: 70px;   /* yläreuna tasan 70 px näytön alareunasta */
+      background: #fff;
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -2px 16px rgba(0,0,0,0.18);
+      z-index: 15;    /* #bottom-sheetin (20) ALLE → paljastuu sen alta */
+      transform: translateY(110%);
+      transition: transform 0.38s cubic-bezier(0.32,0.72,0,1);
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+    #time-sheet.open { transform: translateY(0); }
+    #time-sheet-close {
+      position: absolute; top: 4px; right: 8px; z-index: 3;
+      width: 26px; height: 26px; border: none; border-radius: 50%;
+      background: #eeeef1; color: #6b6b70; font-size: 15px; line-height: 1;
+      cursor: pointer; padding: 0;
+    }
+    /* Vasen lohko: teksti ennen rullausta, valittu aika sen jälkeen. */
+    #time-sheet-label {
+      position: absolute; top: 0; bottom: 0; left: 0; width: 132px; z-index: 2;
+      display: flex; align-items: center; padding-left: 14px;
+      background: #6b6b70; color: #fff;
+      font-size: 14px; font-weight: bold;
+    }
+    #time-sheet-label.set { background: #0C0243; }
+    /* Rulla: vaakavieritys, napsautus puolen tunnin kohtiin. */
+    #time-strip {
+      position: absolute; top: 0; bottom: 0; left: 0; right: 0;
+      overflow-x: auto; overflow-y: hidden;
+      display: flex; align-items: stretch;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    #time-strip::-webkit-scrollbar { display: none; }
+    .time-tick {
+      flex: 0 0 86px; scroll-snap-align: start;
+      position: relative;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; color: #4a4a50;
+      border-left: 1px solid #e2e2e6;
+    }
+    .time-tick.past { color: #2e9e4f; font-weight: bold; }
+    .time-tick .tick-day { position: absolute; top: 6px; font-size: 11px; color: #9a9aa0; }
+
     /* ── Ajanhetki pill + floating window ─────────────────────────────── */
     /* Anchor line sitting just above the sheet's top edge. It's a child of
        #bottom-sheet, so it rides with the sheet exactly like the
        "© OpenStreetMap" credit does. Zero height: the pill and the window hang
        off its bottom edge and grow UPWARD from there. */
+    /* Vanha ajanhetki-pilleri on poistettu käytöstä: sen tilalla on #time-sheet.
+       Elementit jätetään DOMiin, koska niihin viitataan kymmenistä kohdista. */
+    #ajanhetki-anchor { display: none !important; }
     #ajanhetki-anchor {
       position: absolute;
       bottom: calc(100% + 8px);
@@ -5687,6 +5741,12 @@
     <div id="start-btn-container"><button id="start-btn" class="disabled">Aseta pysäköintiaika</button></div>
   </div>
 
+  <div id="time-sheet">
+    <div id="time-strip"></div>
+    <div id="time-sheet-label">Säädä ajanhetkeä</div>
+    <button id="time-sheet-close" aria-label="Sulje ajanhetki">✕</button>
+  </div>
+
   <div id="btn-container" class="tp-gone">
     <button id="action-btn">Siirrä kursori pysäköintialueelle</button>
   </div>
@@ -5695,7 +5755,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-18-g';
+    const APP_BUILD   = '2026-08-18-h';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -15231,7 +15291,7 @@
       const _s = document.getElementById('bottom-sheet'); if (_s) _s.classList.remove('tp-gone');
       const _b = document.getElementById('btn-container'); if (_b) _b.classList.remove('tp-gone');
       filterMode=true;
-      if (typeof unpinAjanhetkiCard === 'function') unpinAjanhetkiCard();
+      if (typeof closeTimeSheet === 'function') closeTimeSheet();
       document.body.classList.add('filter-mode');
       filterCloseBtn.classList.add('visible');
       // Hide GPS warning + zoom indicator in filter view
@@ -15306,12 +15366,9 @@
       // VÄLIKOKOISENA ja KIINNITETTYNÄ: se ei enää ratsasta sheetin mukana eikä
       // avaudu isona. Kiinnitys tehdään vasta kun kortti on näkyvissä ja
       // välikoossa, jotta korkeusmittaus osuu.
-      const _ahCard = document.getElementById('ajanhetki-card');
-      if (refTimeManual && _ahCard && _ahCard.classList.contains('visible')) {
-        openAjanhetkiFloat();          // expands (medium) + refreshes value/drum
-        setAjanhetkiSize('medium');
-        pinAjanhetkiCard();
-      }
+      // Ajanhetkeä säädettäessä suodattimen alta paljastuu ajanhetki-sheet,
+      // jonka vaakarullalla aikaa voi jatkaa säätämistä.
+      if (refTimeManual) openTimeSheet();
       checkParking();
       // Suodatinnäkymästä palataan joko valittuun kohteeseen tai puhtaaseen
       // karttanäkymään — sheet ei jää roikkumaan filtterin 60 %:n tasolle.
@@ -16157,6 +16214,115 @@
       // and the collapsed card is sized to fit it exactly — so re-measure.
       applyAjanhetkiGeometry();
     }
+
+    // ══ AJANHETKI-SHEET (vaakarulla) ═══════════════════════════════════
+    // Korvaa vanhan ajanhetki-pillerin. Paljastuu suodatinsheetin alta kun
+    // suodatin suljetaan ja ajanhetkeä on säädetty. Rulla vierii vaakasuunnassa
+    // ja napsahtaa puolen tunnin kohtiin; ensimmäinen kohta on nykyhetki, sitä
+    // seuraavat tasa- ja puolitunnit (17:38 → 18:00 → 18:30 → …).
+    const TIME_TICK_W = 86;     // yhden kohdan leveys px (sama kuin CSS:ssä)
+    let _timeSheetBuilt = false;
+    let _timeSheetTicks = [];   // minuuttia keskiyöstä, indeksi = kohdan numero
+    let _timeScrollRAF = null;
+
+    function timeSheetLabelFor(min){
+      const d = new Date(); d.setHours(0,0,0,0);
+      const t = new Date(d.getTime() + min*60000);
+      const hh = t.getHours(), mm = String(t.getMinutes()).padStart(2,'0');
+      return hh + '.' + mm;
+    }
+    function timeSheetDayFor(min){
+      const days = Math.floor(min / 1440);
+      if (days === 0) return '';
+      if (days === 1) return 'huomenna';
+      const d = new Date(); d.setHours(0,0,0,0);
+      const t = new Date(d.getTime() + min*60000);
+      return ['su','ma','ti','ke','to','pe','la'][t.getDay()];
+    }
+    // Rakennetaan kohdat kerran: [nykyhetki, seuraava puolitunti, ...] viikon päähän.
+    function buildTimeStrip(){
+      const strip = document.getElementById('time-strip');
+      if (!strip) return;
+      const now = nowRefMinutes();
+      const first = Math.ceil((now + 1) / REF_STEP_MIN) * REF_STEP_MIN;
+      _timeSheetTicks = [now];
+      for (let m = first; m <= REF_MAX_MIN; m += REF_STEP_MIN) _timeSheetTicks.push(m);
+      let html = '';
+      _timeSheetTicks.forEach((m, i) => {
+        const day = (i > 0) ? timeSheetDayFor(m) : '';
+        html += '<div class="time-tick" data-i="' + i + '">'
+             + (day ? '<span class="tick-day">' + day + '</span>' : '')
+             + (i === 0 ? 'nyt' : timeSheetLabelFor(m)) + '</div>';
+      });
+      // Viimeisen kohdan on yllettävä osoittimen kohdalle → tyhjää loppuun.
+      html += '<div style="flex:0 0 100%"></div>';
+      strip.innerHTML = html;
+      // Vasemman lohkon leveys varataan sisennyksenä, jotta kohta 0 osuu sen reunaan.
+      strip.style.paddingLeft = (document.getElementById('time-sheet-label').offsetWidth || 132) + 'px';
+      _timeSheetBuilt = true;
+    }
+    // Valittu kohta = se joka on vierityksen alussa (vasemman lohkon oikea reuna).
+    function timeStripIndex(){
+      const strip = document.getElementById('time-strip');
+      if (!strip) return 0;
+      return Math.max(0, Math.min(_timeSheetTicks.length - 1,
+        Math.round(strip.scrollLeft / TIME_TICK_W)));
+    }
+    function applyTimeStripSelection(){
+      const idx = timeStripIndex();
+      const lab = document.getElementById('time-sheet-label');
+      const strip = document.getElementById('time-strip');
+      if (strip) strip.querySelectorAll('.time-tick').forEach(el => {
+        el.classList.toggle('past', (+el.dataset.i) < idx);
+      });
+      if (idx === 0) {
+        if (lab) { lab.textContent = 'Säädä ajanhetkeä'; lab.classList.remove('set'); }
+        if (refTimeManual) resetRefTime();
+        return;
+      }
+      if (lab) { lab.textContent = timeSheetLabelFor(_timeSheetTicks[idx]); lab.classList.add('set'); }
+      refTimeManual = true;
+      refMinutes = _timeSheetTicks[idx];
+      refreshRefFilter();
+    }
+    function openTimeSheet(){
+      const el = document.getElementById('time-sheet');
+      if (!el) return;
+      if (!_timeSheetBuilt) buildTimeStrip();
+      el.classList.add('open');
+      // Vieritetään rulla nykyiseen ajanhetkeen.
+      const strip = document.getElementById('time-strip');
+      if (strip) {
+        // Lähin kohta, ei tarkkaa osumaa: säädetty arvo voi olla menneisyydessä
+        // tai pudota kohtien väliin, eikä valintaa saa silloin nollata.
+        const target = refTimeManual ? refRoundedMinutes() : _timeSheetTicks[0];
+        let i = 0;
+        for (let k = 1; k < _timeSheetTicks.length; k++) {
+          if (Math.abs(_timeSheetTicks[k] - target) < Math.abs(_timeSheetTicks[i] - target)) i = k;
+        }
+        strip.scrollLeft = i * TIME_TICK_W;
+        applyTimeStripSelection();
+      }
+    }
+    function closeTimeSheet(){
+      const el = document.getElementById('time-sheet');
+      if (el) el.classList.remove('open');
+    }
+    function isTimeSheetOpen(){
+      const el = document.getElementById('time-sheet');
+      return !!(el && el.classList.contains('open'));
+    }
+    (function wireTimeSheet(){
+      const strip = document.getElementById('time-strip');
+      const close = document.getElementById('time-sheet-close');
+      if (close) close.addEventListener('click', () => { closeTimeSheet(); resetRefTime(); });
+      if (strip) strip.addEventListener('scroll', () => {
+        if (_timeScrollRAF) return;
+        _timeScrollRAF = requestAnimationFrame(() => { _timeScrollRAF = null; applyTimeStripSelection(); });
+      }, { passive: true });
+      window.addEventListener('resize', () => { if (_timeSheetBuilt) buildTimeStrip(); });
+    })();
+
     // ── Sheet-linked fade ────────────────────────────────────────────────
     // The anchor rides with the sheet and fades as the sheet is opened, exactly
     // like the © OpenStreetMap credit does. Read from the sheet's REAL
@@ -16272,6 +16438,14 @@
     // The card is shown while summoned (not dismissed), free-parking colouring is
     // on, and the filter sheet is closed.
     function updateAjanhetkiPillVisibility(){
+      // Vanha pilleri on poistettu käytöstä (korvattu #time-sheetillä). Pidetään
+      // se piilossa ja © OpenStreetMap aina näkyvissä; funktio jää paikalleen,
+      // koska sitä kutsutaan kymmenistä kohdista.
+      const _oldCard = document.getElementById('ajanhetki-card');
+      if (_oldCard) _oldCard.classList.remove('visible');
+      const _osm = document.getElementById('osm-attribution');
+      if (_osm) _osm.style.visibility = 'visible';
+      if (true) return;
       const card = document.getElementById('ajanhetki-card');
       if (!card) return;
       // Below zoom 13 the pill hides, the same way the P-marker and the
@@ -18618,12 +18792,9 @@
       const wasOpen = sheetOpen;
       sheetOpen = true;
       window.__tpSheetOpen = true;
-      // Kohde valittu → kortti irrotetaan kiinnityksestä ja ratsastaa taas
-      // sheetin yläreunassa kuten ennenkin.
-      if (typeof unpinAjanhetkiCard === 'function' && ajanhetkiPinned) {
-        unpinAjanhetkiCard();
-        collapseAjanhetkiCard();
-      }
+      // Kohde valittu → ajanhetki-sheet pois tieltä (perusnäkymän sheet nousee
+      // sen päälle).
+      if (typeof closeTimeSheet === 'function') closeTimeSheet();
       if (!wasOpen) sheetFadeArmed = true;
       btnContainer.classList.remove('hidden');
       btnContainer.style.opacity = '';
@@ -18990,6 +19161,13 @@
         const midY = window.innerHeight * 0.6;                       // mid level
         const minY = sheet.clientHeight - 70;                        // bottom (collapsed)
         const levels = [maxY, midY, minY];                            // top → mid → bottom
+        // Alimman tason ALApuolelle vedettäessä suodatin sulkeutuu kokonaan,
+        // samaan tapaan kuin perusnäkymän sheet — ja sen alta paljastuu
+        // ajanhetki-sheet jos aikaa on säädetty.
+        if (currentY > minY + TP_SHEET.dismissPx || (currentY > minY + 2 && velocity > TP_SHEET.dismissVel)) {
+          closeFilter();
+          return;
+        }
         // Nearest level to where the drag started
         let si = 0;
         for(let i=1;i<levels.length;i++){
