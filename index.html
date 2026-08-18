@@ -18,8 +18,29 @@
   <link rel="apple-touch-icon" href="icon.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="icon.png" />
   <title>TotalParking</title>
-  <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" />
-  <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js"></script>
+  <!-- ══ RENDERÖIJÄN VALINTA ═══════════════════════════════════════════
+       Mapbox standard  → Mapbox GL JS + Mapboxin tiilet ja tyyli.
+       HSL day / night  → MapLibre GL JS + Digitransitin tiilet.
+       HSL-teemoissa EI käytetä Mapboxia millään tavalla, joten myös
+       renderöijä vaihtuu. Ladataan siis vain se SDK jota tarvitaan.
+       document.write pysäyttää jäsennyksen kunnes skripti on ladattu,
+       joten globaali (mapboxgl TAI maplibregl) on varmasti olemassa
+       ennen sovellusskriptiä. Teeman vaihto renderöijän yli vaatii
+       sivun uudelleenlatauksen (ks. selectMapStyle). -->
+  <script>
+    (function () {
+      var choice = null;
+      try { choice = localStorage.getItem('tp_mapstyle'); } catch (e) {}
+      // Vanhat tunnukset (original/dark/newstyle) → Mapbox, kuten ennenkin.
+      var hsl = (choice === 'hslday' || choice === 'hslnight');
+      var css = hsl ? 'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css'
+                    : 'https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css';
+      var js  = hsl ? 'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js'
+                    : 'https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.js';
+      document.write('<link rel="stylesheet" href="' + css + '" />');
+      document.write('<scr' + 'ipt src="' + js + '"></scr' + 'ipt>');
+    })();
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
   <style>
     :root {
@@ -80,6 +101,11 @@
     .mapboxgl-ctrl-group { display: none !important; }
     .mapboxgl-ctrl-attrib { display: none !important; }
     .mapboxgl-ctrl-logo { display: none !important; }
+    /* MapLibre käyttää omaa luokkaetuliitettään — samat säännöt sille. */
+    .maplibregl-ctrl { display: none !important; }
+    .maplibregl-ctrl-group { display: none !important; }
+    .maplibregl-ctrl-attrib { display: none !important; }
+    .maplibregl-ctrl-logo { display: none !important; }
     /* ── Unified center marker ────────────────────────────────────────
        One element that morphs between two states:
        - Collapsed (default): just the P pin
@@ -235,7 +261,7 @@
 
     /* MapLibre DOM markers (e.g. the red search-result pin) sit below the
        P-marker so they can't peek out from behind it. */
-    .mapboxgl-marker { z-index: 5; }
+    .mapboxgl-marker, .maplibregl-marker { z-index: 5; }
     
     /* Splash Screen */
     /* (Splash screen removed — app now opens directly to the map.) */
@@ -244,7 +270,7 @@
        MapLibre's native heading cone is hidden; we render our own arrow
        inside the user-location-dot, rotated via JS using DeviceOrientation
        data (after the user grants compass permission on iOS). */
-    .mapboxgl-user-location-dot {
+    .mapboxgl-user-location-dot, .maplibregl-user-location-dot {
       background-color: #1e7cff !important;
       width: 22px !important;
       height: 22px !important;
@@ -253,7 +279,8 @@
       position: relative !important;
     }
     /* Hide MapLibre's own cone-shaped heading indicator — we use our own */
-    .mapboxgl-user-location-dot-heading { display: none !important; }
+    .mapboxgl-user-location-dot-heading,
+    .maplibregl-user-location-dot-heading { display: none !important; }
     /* Custom direction arrow. Positioned dead-center over the user dot;
        a transform chain rotates first, then translates outward — so the
        arrow's base ends up flush against the dot's edge in the rotated
@@ -281,7 +308,8 @@
       display: none;
       transition: transform 0.12s linear;
     }
-    .mapboxgl-user-location-dot.has-heading .user-dot-arrow {
+    .mapboxgl-user-location-dot.has-heading .user-dot-arrow,
+    .maplibregl-user-location-dot.has-heading .user-dot-arrow {
       display: block;
     }
     
@@ -4501,20 +4529,20 @@
           <div class="settings-row-text">
             <div class="settings-row-title">Kartan tyyli</div>
           </div>
-          <div class="settings-mapstyle-current" id="setting-mapstyle-current">Oma tyyli</div>
+          <div class="settings-mapstyle-current" id="setting-mapstyle-current">Mapbox standard</div>
           <div class="settings-mapstyle-chevron" id="setting-mapstyle-chevron">›</div>
         </div>
         <div class="settings-mapstyle-options" id="setting-mapstyle-options">
-          <div class="settings-mapstyle-option" data-style="original" onclick="selectMapStyle('original', this)">
-            <span>Oma tyyli</span>
+          <div class="settings-mapstyle-option" data-style="standard" onclick="selectMapStyle('standard', this)">
+            <span>Mapbox standard</span>
             <span class="settings-mapstyle-check">✓</span>
           </div>
-          <div class="settings-mapstyle-option" data-style="dark" onclick="selectMapStyle('dark', this)">
-            <span>Tumma</span>
+          <div class="settings-mapstyle-option" data-style="hslday" onclick="selectMapStyle('hslday', this)">
+            <span>HSL day</span>
             <span class="settings-mapstyle-check">✓</span>
           </div>
-          <div class="settings-mapstyle-option" data-style="newstyle" onclick="selectMapStyle('newstyle', this)">
-            <span>Standard</span>
+          <div class="settings-mapstyle-option" data-style="hslnight" onclick="selectMapStyle('hslnight', this)">
+            <span>HSL night</span>
             <span class="settings-mapstyle-check">✓</span>
           </div>
           <!-- Hakee nykyisen tyylin uudelleen Mapboxilta. Tarpeen vain jos
@@ -5642,7 +5670,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-02-m';
+    const APP_BUILD   = '2026-08-18-a';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
@@ -5684,7 +5712,14 @@
     // Niin kauan kuin arvo on paikkamerkki, satelliittinappi vain vilauttaa
     // ohjeen eikä yritä ladata tiiliä.
     const MAPBOX_TOKEN = 'pk.eyJ1IjoiZWxpYXMxOTk4IiwiYSI6ImNtcWdodHpmMDAwZXUydHM1OXR6eDRxb3UifQ.sEKSaKfCn8sUp644g11u9Q';
-    mapboxgl.accessToken = MAPBOX_TOKEN;
+    // ── Renderöijän alias ──────────────────────────────────────────────
+    // Vain toinen SDK on ladattu (ks. headin valitsin). Kaikki kartta-
+    // olioiden luonti kulkee GL:n kautta, jotta koodi on renderöijästä
+    // riippumaton: GL.Map, GL.Marker, GL.GeolocateControl, GL.LngLatBounds.
+    const USE_MAPLIBRE = (typeof maplibregl !== 'undefined');
+    const GL = USE_MAPLIBRE ? maplibregl : mapboxgl;
+    // accessToken on Mapboxin käsite; MapLibrella sitä ei ole eikä tarvita.
+    if (!USE_MAPLIBRE) { mapboxgl.accessToken = MAPBOX_TOKEN; }
 
     // ── OpenStreetMap-rasteritiilet (karttatyylin "OSM"-tila) ──────────
     // Tämä on OSM:n oma vakiotyyli (sama ulkoasu kuin openstreetmap.org).
@@ -6159,34 +6194,62 @@
       console.warn('[share] could not parse URL params:', e);
     }
 
-    // Map style preference (persisted): 'original' | 'dark' | 'newstyle'.
+    // Map style preference (persisted): 'standard' | 'hslday' | 'hslnight'.
     // Chooses which style JSON to load. Migrates from the legacy boolean
     // tp_darkmode key when tp_mapstyle hasn't been written yet.
     // Oma Mapbox Studio -tyyli. Kun tata muokkaa Studiossa ja painaa Publish,
     // muutokset tulevat sovellukseen kun tyyli ladataan uudelleen.
     const MY_STUDIO_STYLE = 'mapbox://styles/elias1998/cms9akf7k008701sfc6lyhtie';
+    // HSL-tyylit tulevat Oma-kartta-repon GitHub Pagesista, jossa myös niiden
+    // sprite ja Lato-glyphit sijaitsevat. Jos kopioit JSONit tähän repoon,
+    // vaihda tämä tyhjäksi merkkijonoksi — tiedostonimet ovat samat.
+    const HSL_STYLE_BASE = 'https://elias1998-fi.github.io/Oma-kartta/';
     const MAP_STYLE_URLS = {
-      original: MY_STUDIO_STYLE,
-      dark:     'mapbox://styles/mapbox/dark-v11',
-      newstyle: 'mapbox://styles/mapbox/standard'
+      standard: MY_STUDIO_STYLE,
+      hslday:   HSL_STYLE_BASE + 'omakartta_style_newstyle.json',
+      hslnight: HSL_STYLE_BASE + 'omakartta_style_darkmode.json'
     };
     const MAP_STYLE_LABELS = {
-      original: 'Oma tyyli',
-      dark:     'Tumma',
-      newstyle: 'Standard'
+      standard: 'Mapbox standard',
+      hslday:   'HSL day',
+      hslnight: 'HSL night'
     };
+    // Kumpi renderöijä mitäkin teemaa piirtää.
+    const MAP_STYLE_RENDERER = {
+      standard: 'mapbox',
+      hslday:   'maplibre',
+      hslnight: 'maplibre'
+    };
+    // Vanhat tallennetut arvot uusiin tunnuksiin.
+    const MAP_STYLE_MIGRATE = { original: 'standard', dark: 'hslnight', newstyle: 'standard' };
     // Sivukartat (alueen rajaus, editori, sijainnin muokkaus, admin-esikatselu)
     // kayttavat samaa omaa tyylia, jotta ne nayttavat paakartalta.
-    const SIDE_MAP_STYLE = MY_STUDIO_STYLE;
+    // Sivukartat seuraavat valittua teemaa: Mapbox-teemalla oma Studio-tyyli,
+    // HSL-teemoilla sama HSL-tyyli kuin pääkartalla. Funktio, ei vakio, koska
+    // arvo riippuu valinnasta.
+    function sideMapStyle(){
+      return (MAP_STYLE_RENDERER[mapStyleChoice] === 'maplibre')
+        ? MAP_STYLE_URLS[mapStyleChoice]
+        : MY_STUDIO_STYLE;
+    }
     let mapStyleChoice = (function(){
       try {
         const saved = localStorage.getItem('tp_mapstyle');
         if (saved && MAP_STYLE_URLS[saved]) return saved;
-        return localStorage.getItem('tp_darkmode') === '1' ? 'dark' : 'original';
-      } catch(e){ return 'original'; }
+        if (saved && MAP_STYLE_MIGRATE[saved]) return MAP_STYLE_MIGRATE[saved];
+        return localStorage.getItem('tp_darkmode') === '1' ? 'hslnight' : 'standard';
+      } catch(e){ return 'standard'; }
     })();
+    // Headin SDK-valitsin luki saman avaimen; varmistetaan että ladattu
+    // renderöijä ja valittu teema vastaavat toisiaan (esim. migraation tai
+    // käsin muokatun localStoragen jälkeen). Jos eivät, pudotaan siihen
+    // teemaan jonka ladattu renderöijä osaa piirtää.
+    if ((MAP_STYLE_RENDERER[mapStyleChoice] === 'maplibre') !== USE_MAPLIBRE) {
+      mapStyleChoice = USE_MAPLIBRE ? 'hslday' : 'standard';
+      try { localStorage.setItem('tp_mapstyle', mapStyleChoice); } catch(e){}
+    }
     const _mapStyleUrl = MAP_STYLE_URLS[mapStyleChoice];
-    const map = new mapboxgl.Map({
+    const map = new GL.Map({
       container: 'map',
       style: _mapStyleUrl,
       center: _sharedInitialCenter || [25.35, 64.9],   // Suomen keskivaiheilla
@@ -6202,7 +6265,9 @@
       // Mercator-projektiossa siirtymää ei ole, joten ongelma katoaa.
       // Sama asetus kannattaa laittaa myös Studioon (Global → Projection),
       // jotta esikatselu vastaa sovellusta.
-      projection: 'mercator',
+      // MapLibrella projektio tulee tyylistä (oletus mercator), joten tämä
+      // asetus koskee vain Mapboxia — sille se on pakollinen, ks. yllä.
+      ...(typeof maplibregl === 'undefined' ? { projection: 'mercator' } : {}),
       // maxBounds POISTETTU käyttäjän pyynnöstä: karttaa saa panoroida vapaasti.
       // Aloitusnäkymä keskitetään silti aina Suomeen (fitFinlandAtStart).
       // minZoom asetetaan AJOSSA Suomi-sovituksen jälkeen — silloin se osuu
@@ -6224,7 +6289,11 @@
     // Jos oma Studio-tyyli ei lataudu, kartta jäisi kokonaan tyhjäksi.
     // Siirrytään silloin varatyyliin. Vahti laukeaa kahdesta suunnasta:
     // heti tyylipyynnön virheestä, tai 8 s aikakatkaisusta.
-    const STYLE_FALLBACK = 'mapbox://styles/mapbox/streets-v12';
+    // Varatyyli valitaan renderöijän mukaan: MapLibre ei osaa ladata
+    // mapbox:// -osoitetta, joten HSL-puolella varana on toinen HSL-tyyli.
+    const STYLE_FALLBACK = USE_MAPLIBRE
+      ? (MAP_STYLE_URLS.hslday === _mapStyleUrl ? MAP_STYLE_URLS.hslnight : MAP_STYLE_URLS.hslday)
+      : 'mapbox://styles/mapbox/streets-v12';
     window.TP_STYLE_DIAG = 'ladataan…';
     window.TP_LAST_MAP_ERROR = '';
     let _styleFellBack = false, _styleWatchTimer = null;
@@ -6253,7 +6322,8 @@
     map.on('error', (e) => {
       const m = (e && e.error && e.error.message) ? e.error.message : '';
       if (m) window.TP_LAST_MAP_ERROR = String(m).slice(0, 240);
-      if (/\/styles\/v1\//.test(m)) {
+      // Mapbox: /styles/v1/… . MapLibre: oman JSON-tiedoston lataus.
+      if (/\/styles\/v1\//.test(m) || (USE_MAPLIBRE && /omakartta_style[^\s]*\.json/.test(m))) {
         const code = (m.match(/\((\d{3})\)/) || [])[1] || 'virhe';
         useFallbackStyle(code);
       }
@@ -6510,7 +6580,7 @@
     // trackUserLocation:false → does not continuously follow the device.
     // We also do NOT auto-trigger on map load; the user must press the
     // location button (top-right) to fetch their current position.
-    const geolocate = new mapboxgl.GeolocateControl({
+    const geolocate = new GL.GeolocateControl({
       positionOptions: { enableHighAccuracy: true },
       trackUserLocation: false,
       showUserHeading: true
@@ -6605,7 +6675,7 @@
       // Käsittele kaikki sijaintipisteet: perusnäkymän (GeolocateControl) sekä
       // hyväksymisnäkymän oma piste (ensureAdminUserDot), jotta suuntanuoli
       // näkyy molemmissa.
-      const dots = document.querySelectorAll('.mapboxgl-user-location-dot');
+      const dots = document.querySelectorAll('.mapboxgl-user-location-dot, .maplibregl-user-location-dot');
       if (!dots.length) return false;
       dots.forEach(dot => {
         if (!dot.querySelector('.user-dot-arrow')) {
@@ -6624,7 +6694,7 @@
       // Order matters: center-then-rotate-then-push-outward. Result: the
       // triangle orbits around the dot's center, base on the dot's edge,
       // tip pointing away in the direction of the compass heading.
-      document.querySelectorAll('.mapboxgl-user-location-dot .user-dot-arrow').forEach(arrow => {
+      document.querySelectorAll('.mapboxgl-user-location-dot .user-dot-arrow, .maplibregl-user-location-dot .user-dot-arrow').forEach(arrow => {
         arrow.style.transform =
           `translate(-50%, -50%) rotate(${_currentHeading}deg) translateY(-22px)`;
       });
@@ -7079,7 +7149,7 @@
       areaMarkers.forEach(m=>m.remove()); areaMarkers=[]; lockedPixelPos=[];
       areaCoords = coords.map(c=>[c[0],c[1]]);
       areaCoords.forEach(c=>{
-        const marker=new mapboxgl.Marker({element:createCornerEl(),draggable:true,anchor:'center'}).setLngLat(c).addTo(areaMap);
+        const marker=new GL.Marker({element:createCornerEl(),draggable:true,anchor:'center'}).setLngLat(c).addTo(areaMap);
         setupMarkerEvents(marker); areaMarkers.push(marker);
         if(!areaLocked)lockedPixelPos.push(clampPixelPos(areaMap.project([c[0],c[1]])));
       });
@@ -7182,7 +7252,7 @@
       if (!areaMap || areaCoords.length < 3) return;
       // Siirtokahva (koko polygonin siirto) — polygonin KESKIPISTEESSÄ.
       // Sivukahvat pysyvät poistettuina; kulmapisteet toimivat normaalisti.
-      const ch = new mapboxgl.Marker({element:createCenterHandleEl(), draggable:true, anchor:'center'}).setLngLat(_areaCentroid()).addTo(areaMap);
+      const ch = new GL.Marker({element:createCenterHandleEl(), draggable:true, anchor:'center'}).setLngLat(_areaCentroid()).addTo(areaMap);
       let cS=null, cSC=null;
       ch.on('dragstart', () => { pushAreaUndo(); cS=ch.getLngLat(); cSC=areaCoords.map(c=>[c[0],c[1]]); });
       ch.on('drag', () => {
@@ -7441,7 +7511,7 @@
         const next=areaCoords[(i+1)%n];
         const mid=[(coord[0]+next[0])/2,(coord[1]+next[1])/2];
         const el=createMidpointEl();
-        const marker=new mapboxgl.Marker({element:el,anchor:'center',draggable:false}).setLngLat(mid).addTo(areaMap);
+        const marker=new GL.Marker({element:el,anchor:'center',draggable:false}).setLngLat(mid).addTo(areaMap);
         el.addEventListener('click',()=>{ insertCornerAt(i+1,mid); exitAddMode(); });
         midpointMarkers.push(marker);
       });
@@ -7453,7 +7523,7 @@
       areaCoords.splice(idx,0,coord);
       areaMarkers.forEach(m=>m.remove()); areaMarkers=[]; lockedPixelPos=[];
       areaCoords.forEach(c=>{
-        const marker=new mapboxgl.Marker({element:createCornerEl(),draggable:true,anchor:'center'}).setLngLat(c).addTo(areaMap);
+        const marker=new GL.Marker({element:createCornerEl(),draggable:true,anchor:'center'}).setLngLat(c).addTo(areaMap);
         setupMarkerEvents(marker); areaMarkers.push(marker);
         if(!areaLocked)lockedPixelPos.push(clampPixelPos(areaMap.project([c[0],c[1]])));
       });
@@ -7473,7 +7543,7 @@
       if(!areaMap||areaCoords.length<3)return;
       clearMidpointHandles(); exitRemoveMode();
       const lngs=areaCoords.map(c=>c[0]), lats=areaCoords.map(c=>c[1]);
-      const bounds=new mapboxgl.LngLatBounds([Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]);
+      const bounds=new GL.LngLatBounds([Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]);
       areaMap.fitBounds(bounds,{padding:80,duration:500,maxZoom:19});
     }
 
@@ -7522,7 +7592,7 @@
       areaCoords=[[c.lng-off,c.lat+off],[c.lng+off,c.lat+off],[c.lng+off,c.lat-off],[c.lng-off,c.lat-off]];
       addPolygonLayers();
       areaCoords.forEach(coord=>{
-        const marker=new mapboxgl.Marker({element:createCornerEl(),draggable:true,anchor:'center'}).setLngLat(coord).addTo(areaMap);
+        const marker=new GL.Marker({element:createCornerEl(),draggable:true,anchor:'center'}).setLngLat(coord).addTo(areaMap);
         setupMarkerEvents(marker); areaMarkers.push(marker);
       });
       updateMinusBtn(); updateAddBtn();
@@ -7535,7 +7605,7 @@
         _adminEditPreloadCoords = null;
         addPolygonLayers();
         areaCoords.forEach(coord=>{
-          const marker=new mapboxgl.Marker({element:createCornerEl(),draggable:true,anchor:'center'}).setLngLat(coord).addTo(areaMap);
+          const marker=new GL.Marker({element:createCornerEl(),draggable:true,anchor:'center'}).setLngLat(coord).addTo(areaMap);
           setupMarkerEvents(marker); areaMarkers.push(marker);
         });
         updateMinusBtn(); updateAddBtn(); capturePolyPixels();
@@ -7572,8 +7642,8 @@
       areaMapType = 0; mapTypePending = false; updateMapTypeBtn();
       resetAreaMapLock();
       if(!areaMap){
-        areaMap=new mapboxgl.Map({
-          container:'area-map', style: SIDE_MAP_STYLE,
+        areaMap=new GL.Map({
+          container:'area-map', style: sideMapStyle(),
           center:[center.lng,center.lat], zoom,
           minZoom:5, maxZoom:20, transformRequest,
           dragRotate:false, touchPitch:false, pitchWithRotate:false,
@@ -8477,7 +8547,7 @@
         arrow.className = 'user-dot-arrow';
         el.appendChild(arrow);
         if (_compassEnabled) el.classList.add('has-heading');
-        _adminUserDotMarker = new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat(lngLat).addTo(adminPreviewMap);
+        _adminUserDotMarker = new GL.Marker({ element: el, anchor: 'center' }).setLngLat(lngLat).addTo(adminPreviewMap);
         if (_currentHeading != null && typeof applyHeadingToUserDot === 'function') applyHeadingToUserDot();
       } else {
         _adminUserDotMarker.setLngLat(lngLat);
@@ -8646,9 +8716,9 @@
       if (!adminPreviewMap) {
         const _ac = (typeof userLocation !== 'undefined' && userLocation) ? [userLocation.lon, userLocation.lat] : [24.9354, 60.1699];
         const _az = (typeof userLocation !== 'undefined' && userLocation) ? 16 : 14;
-        adminPreviewMap = new mapboxgl.Map({
+        adminPreviewMap = new GL.Map({
           container: 'admin-preview-map',
-          style: SIDE_MAP_STYLE,
+          style: sideMapStyle(),
           center: _ac, zoom: _az,
           dragRotate: false, touchPitch: false, pitchWithRotate: false,
           keyboard: false, attributionControl: false, transformRequest, doubleClickZoom: false
@@ -10667,8 +10737,8 @@
     }
     async function initEditorMap() {
       if (!editorMap) {
-        editorMap = new mapboxgl.Map({
-          container:'editor-map', style: SIDE_MAP_STYLE,
+        editorMap = new GL.Map({
+          container:'editor-map', style: sideMapStyle(),
           center:map.getCenter(), zoom:map.getZoom(),
           minZoom:5, maxZoom:20, transformRequest,
           dragRotate:false, attributionControl:false, doubleClickZoom:false
@@ -12099,7 +12169,8 @@
         const id = L.id || '', sl = L['source-layer'] || '';
         if (id.indexOf('tp-') === 0) return;
         if (!/country/i.test(id)) return;
-        if (sl && !/place_label/i.test(sl)) return;
+        // Mapbox Streets: place_label. HSL/Digitransit: place.
+        if (sl && !/^place(_label)?$/i.test(sl)) return;
         seen++;
         const myId = 'tp-fi-pin-' + idx;
         if (map.getLayer(myId)) { made++; return; }
@@ -12123,8 +12194,11 @@
         });
 
         // Vain Suomi. Ensisijaisesti maakoodi, varana nimi eri kielillä.
+        // Maakoodikenttä on eri tiilistöissä eri niminen: Mapbox iso_3166_1,
+        // HSL/OpenMapTiles iso_a2. Varana nimi eri kielillä.
         const mine = ['any',
           ['==', ['get', 'iso_3166_1'], 'FI'],
+          ['==', ['get', 'iso_a2'], 'FI'],
           ['in', ['get', 'name'], ['literal', ['Suomi', 'Finland', 'Finnland']]]
         ];
         const def = {
@@ -12229,13 +12303,28 @@
         o.classList.toggle('selected', o.dataset.style === choice);
       });
       if (choice === mapStyleChoice) return; // already active — nothing to swap
+      const rendererChanges = (MAP_STYLE_RENDERER[choice] !== MAP_STYLE_RENDERER[mapStyleChoice]);
       mapStyleChoice = choice;
       try {
         localStorage.setItem('tp_mapstyle', choice);
         // Keep the legacy boolean in sync so an older build (which only knows
         // tp_darkmode) still opens with the expected base if rolled back.
-        localStorage.setItem('tp_darkmode', choice === 'dark' ? '1' : '0');
+        localStorage.setItem('tp_darkmode', choice === 'hslnight' ? '1' : '0');
       } catch(e){}
+      // ⚠️ RENDERÖIJÄN VAIHTO EI ONNISTU LENNOSTA. Mapbox GL JS ja MapLibre
+      // ovat eri kirjastoja, ja koko sovellus (kartta, tasot, käsittelijät,
+      // markerit) on rakennettu sen olion ympärille joka luotiin sivun
+      // latautuessa. Ainoa turvallinen tapa vaihtaa on ladata sivu uudelleen:
+      // headin valitsin lataa silloin oikean SDK:n localStoragen perusteella.
+      // Teemojen HSL day ↔ HSL night välillä renderöijä ei vaihdu, joten ne
+      // vaihtuvat pehmeästi setStylellä kuten ennenkin.
+      if (rendererChanges) {
+        if (typeof showCustomToast === 'function') {
+          showCustomToast('Vaihdetaan karttamoottoria…', 1500);
+        }
+        setTimeout(() => { location.reload(); }, 150);
+        return;
+      }
       // setStyle() wipes ALL custom sources, layers and images. Re-add them once
       // the new style is ready. 'style.load' can be missed, so we also poll
       // isStyleLoaded() and keep a timeout fallback; a guard prevents double runs.
@@ -12255,7 +12344,10 @@
     function refreshMapStyle() {
       // Tyhjennetään Mapbox GL:n oma väli­muisti ja ladataan tyyli uudestaan.
       // URLiin EI kosketa — ks. transformRequestin kommentti (400-virhe).
-      try { if (mapboxgl.clearStorage) mapboxgl.clearStorage(); } catch(e){}
+      // clearStorage on Mapbox GL JS:n oma rajapinta (sen tiilivälimuisti).
+      // MapLibrella sitä ei ole, eikä HSL-tyylejä tarvitse hakea uudelleen
+      // Studiosta — ne ovat omia tiedostoja.
+      try { if (!USE_MAPLIBRE && mapboxgl.clearStorage) mapboxgl.clearStorage(); } catch(e){}
       _styleFellBack = false;
       let _reapplied = false;
       const doReapply = () => {
@@ -12884,12 +12976,12 @@
         const el = document.createElement('img');
         el.src = (typeof chargingIconSvg === 'function') ? chargingIconSvg('#008151') : '';
         el.style.cssText = 'width:30px;height:30px;display:block;';
-        _locEditOrigMarker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        _locEditOrigMarker = new GL.Marker({ element: el, anchor: 'center' })
           .setLngLat([center.lng, center.lat]).addTo(locEditMap);
       };
       if (!locEditMap) {
-        locEditMap = new mapboxgl.Map({
-          container: 'loc-edit-map', style: SIDE_MAP_STYLE,
+        locEditMap = new GL.Map({
+          container: 'loc-edit-map', style: sideMapStyle(),
           center: [center.lng, center.lat], zoom: zoom,
           minZoom: 5, maxZoom: 20, transformRequest,
           dragRotate: false, attributionControl: false, doubleClickZoom: false
@@ -12921,7 +13013,7 @@
         const el = document.createElement('img');
         el.src = (typeof chargingIconSvg === 'function') ? chargingIconSvg('#ff8c00') : '';
         el.style.cssText = 'width:34px;height:34px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.4));';
-        _locEditNewMarker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        _locEditNewMarker = new GL.Marker({ element: el, anchor: 'center' })
           .setLngLat([c.lng, c.lat]).addTo(locEditMap);
         const pin = document.getElementById('loc-edit-center-pin');
         if (pin) pin.style.display = 'none';
@@ -13521,7 +13613,7 @@
       const onMoveEnd = () => {
         map.off('moveend', onMoveEnd);
         const markerElement = createPinElement();
-        currentMarker = new mapboxgl.Marker({
+        currentMarker = new GL.Marker({
           element: markerElement,
           anchor: 'bottom'
         })
@@ -17783,7 +17875,7 @@
           <ellipse cx="12" cy="33" rx="2" ry="1.5" fill="#333" opacity="0.4"/>
         </svg>`;
       outer.appendChild(inner);
-      _destinationPinMarker = new mapboxgl.Marker({ element: outer, anchor: 'bottom' })
+      _destinationPinMarker = new GL.Marker({ element: outer, anchor: 'bottom' })
         .setLngLat([lng, lat])
         .addTo(map);
       _destinationCoords = { lat, lng };
