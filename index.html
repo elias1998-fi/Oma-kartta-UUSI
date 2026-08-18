@@ -2122,7 +2122,11 @@
       right: 0; 
       z-index: 9990; 
       background: white; 
-      padding: 10px 16px; 
+      /* Sivumarginaali 23 px = iOS:n oma sheet-painikkeen sisennys (mitattu
+         kuvakaappauksesta: nappi alkaa 70 laitepikselin kohdalta @3x, eli
+         23,3 CSS px reunasta). Aiemmin 16 px, jolloin nappi oli 15 px liian
+         leveä. Maski (valkoinen tausta) on yhä koko leveydeltä. */
+      padding: 10px 23px; 
       padding-bottom: max(20px,env(safe-area-inset-bottom)); 
       /* Liikkuu sheetin mukana kun sheettiä vedetään kollapsitason alle. */
       transform: translateY(calc(100% + 48px));
@@ -5677,7 +5681,7 @@
     // Versio näkyy Asetukset → Tietoja sovelluksesta → Sovelluksen versio.
     // NOSTA APP_BUILD jokaisessa toimituksessa (VVVV-KK-PP-kirjain).
     const APP_VERSION = '2.0.0';
-    const APP_BUILD   = '2026-08-18-b';
+    const APP_BUILD   = '2026-08-18-c';
     window.TP_BUILD = APP_BUILD;
     console.log('TotalParking ' + APP_VERSION + ' · build ' + APP_BUILD);
     document.addEventListener('DOMContentLoaded', () => {
